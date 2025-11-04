@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.11/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.11",
+  "version": "1.5.0",
+  "id": "3a8b0460-6561-4b67-99f3-799649f4d58f",
+  "packageName": "com.multihealth.viewer",
+  "developer": {
+    "name": "Multihealth",
+    "websiteUrl": "https://www.multihealthgroup.com/",
+    "privacyUrl": "https://www.multihealthgroup.com/fr/data-protection-notice/",
+    "termsOfUseUrl": "https://www.multihealthgroup.com/fr/legal-notice/"
+  },
+  "name": {
+    "short": "MultiHealth-2",
+    "full": "MultiHealth PDF Viewer"
+  },
+  "description": {
+    "short": "Viewer PDF depuis SharePoint",
+    "full": "Liste et aper\u00e7oit les fichiers PDF d'un dossier SharePoint via Microsoft Graph."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0052CC",
+  "staticTabs": [
+    {
+      "entityId": "pdfViewerTab",
+      "name": "PDF Viewer",
+      "contentUrl": "https://3d0a92afc650.ngrok-free.app/ms/?siteUrl=https://clinactcom.sharepoint.com/sites/LivretAccueil&folderPath=/General/Administratif",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "validDomains": [
+    "3d0a92afc650.ngrok-free.app",
+    "clinactcom.sharepoint.com"
+  ]
+}
