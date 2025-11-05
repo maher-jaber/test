@@ -1,8 +1,8 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.11/MicrosoftTeams.schema.json",
   "manifestVersion": "1.11",
-  "version": "1.5.0",
-  "id": "3a8b0460-6561-4b67-99f3-799649f4d58f",
+  "version": "1.6.0",
+  "id": "8f6f5c34-0c7d-4cac-a205-0fd6942bf023",
   "packageName": "com.multihealth.viewer",
   "developer": {
     "name": "Multihealth",
@@ -11,7 +11,7 @@
     "termsOfUseUrl": "https://www.multihealthgroup.com/fr/legal-notice/"
   },
   "name": {
-    "short": "MultiHealth-2",
+    "short": "MultiHealth-2-new",
     "full": "MultiHealth PDF Viewer"
   },
   "description": {
@@ -27,7 +27,7 @@
     {
       "entityId": "pdfViewerTab",
       "name": "PDF Viewer",
-      "contentUrl": "https://3d0a92afc650.ngrok-free.app/ms/?siteUrl=https://clinactcom.sharepoint.com/sites/LivretAccueil&folderPath=/General/Administratif",
+      "contentUrl": "https://test-rssn.onrender.com/?siteUrl=https://clinactcom.sharepoint.com/sites/LivretAccueil&folderPath=/General/Administratif",
       "scopes": [
         "personal"
       ]
@@ -37,7 +37,11 @@
     "identity"
   ],
   "validDomains": [
-    "3d0a92afc650.ngrok-free.app",
+    "test-rssn.onrender.com",
     "clinactcom.sharepoint.com"
-  ]
+  ],
+  "webApplicationInfo": {
+  "id": "1135fab5-62e8-4cb1-b472-880c477a8812",
+  "resource": "api://1135fab5-62e8-4cb1-b472-880c477a8812"
+}
 }

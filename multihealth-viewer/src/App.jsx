@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import * as msal from "@azure/msal-browser";
 import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
+import * as microsoftTeams from "@microsoft/teams-js";
 
 const msalConfig = {
   auth: {
@@ -35,11 +36,22 @@ function App() {
   const folderPath = urlParams.get('folderPath') || ""; // e.g. /Shared Documents/PDFs
 
   useEffect(() => {
-    const accounts = msalInstance.getAllAccounts();
-    if (accounts && accounts.length > 0) {
-      setAccount(accounts[0]);
-      initGraphClient(accounts[0]);
-    }
+    microsoftTeams.app.initialize().then(() => {
+      microsoftTeams.authentication.getAuthToken({
+        successCallback: (token) => {
+          console.log("✅ Token récupéré depuis Teams (SSO)");
+          const decoded = msal.TokenClaims(token);
+          setAccount({ username: decoded.preferred_username });
+  
+          msalInstance.setActiveAccount({ idTokenClaims: decoded });
+          initGraphClient({ idTokenClaims: decoded });
+        },
+        failureCallback: (err) => {
+          console.error("❌ Erreur récupération token Teams:", err);
+          signIn(); // fallback avec popup si pas possible
+        }
+      });
+    });
   }, []);
 
   function initGraphClient(activeAccount) {
@@ -147,14 +159,7 @@ function App() {
   return (
     <div style={{ fontFamily: 'Segoe UI, Arial', padding: 20 }}>
       <h2>MultiHealth — PDF Viewer</h2>
-      {!account && <button onClick={signIn}>Se connecter</button>}
-      {account && <div>Utilisateur: {account.username} <button onClick={() => { msalInstance.logout(); window.location.reload(); }}>Déconnexion</button></div>}
-
-      <div style={{ marginTop: 12 }}>
-        <div><strong>Site SharePoint utilisé :</strong> {siteUrl || '<à fournir via siteUrl param>'}</div>
-        <div><strong>Chemin dossier (folderPath) :</strong> {folderPath || '<racine du drive>'}</div>
-      </div>
-
+     
       <div style={{ marginTop: 12 }}>
         <button onClick={listPdfs} disabled={!account || loading}>Lister les PDFs</button>
       </div>
