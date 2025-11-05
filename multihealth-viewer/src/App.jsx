@@ -28,8 +28,7 @@ function App() {
         // Essayer d'abord avec la ressource personnalisée
         try {
           const authToken = await microsoftTeams.authentication.getAuthToken({
-            resources: ["https://graph.microsoft.com"]
-
+            resources: [`api://1135fab5-62e8-4cb1-b472-880c477a8812`]
           });
           console.log("✅ Token avec ressource personnalisée obtenu");
           initializeGraphClient(authToken);
@@ -38,7 +37,9 @@ function App() {
           console.log("❌ Ressource personnalisée échouée, tentative avec Graph directement...");
           
           // Fallback: utiliser directement Microsoft Graph
-         
+          const authToken = await microsoftTeams.authentication.getAuthToken({
+            resources: [`https://graph.microsoft.com`]
+          });
           console.log("✅ Token Graph obtenu");
           initializeGraphClient(authToken);
         }
