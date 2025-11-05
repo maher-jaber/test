@@ -34,8 +34,19 @@
     }
   ],
   "permissions": [
-    "identity"
+    "identity",
+    "messageTeamMembers"
   ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "TeamSettings.Read.Group",
+          "type": "Application"
+        }
+      ]
+    }
+  },
   "validDomains": [
     "test-rssn.onrender.com",
     "clinactcom.sharepoint.com"

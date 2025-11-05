@@ -37,38 +37,30 @@ function App() {
 
   /** ✅ Initialisation SSO Teams */
   useEffect(() => {
-    microsoftTeams.app.initialize().then(() => {
-      microsoftTeams.authentication.getAuthToken({
-        resources: [AZURE_APP_ID],
-        successCallback: async (teamsToken) => {
-          console.log("✅ Token Teams obtenu (SSO)");
-
-          const decoded = decodeJwt(teamsToken);
-          console.log("👤 Utilisateur :", decoded?.preferred_username);
-
-          const result = await msalInstance.acquireTokenSilent({
-            scopes: [GRAPH_SCOPE],
-            account: msalInstance.getAllAccounts()[0],
-            forceRefresh: true,
-          }).catch(async () => {
-            return await msalInstance.acquireTokenByAuthorizationCode({
-              scopes: [GRAPH_SCOPE],
-            });
-          });
-
-          const graph = Client.init({
-            authProvider: (done) => done(null, result.accessToken),
-          });
-
-          setGraphClient(graph);
-        },
-
-        failureCallback: (err) => {
-          console.error("❌ Erreur Token Teams :", err);
-          setError("Erreur SSO Teams : " + err);
-        }
-      });
-    });
+    const initializeAuth = async () => {
+      try {
+        await microsoftTeams.app.initialize();
+        
+        // Demander explicitement le consentement
+        const authToken = await microsoftTeams.authentication.authenticate({
+          url: window.location.origin + "/auth.html",
+          width: 600,
+          height: 535
+        });
+  
+        console.log("✅ Token obtenu avec consentement");
+        const graph = Client.init({
+          authProvider: (done) => done(null, authToken),
+        });
+        setGraphClient(graph);
+        
+      } catch (err) {
+        console.error("❌ Erreur d'authentification :", err);
+        setError("Veuillez accepter les permissions pour continuer");
+      }
+    };
+  
+    initializeAuth();
   }, []);
 
 
