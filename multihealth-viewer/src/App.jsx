@@ -4,8 +4,6 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 
-const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
-
 function decodeJwt(token) {
   try {
     return JSON.parse(atob(token.split('.')[1]));
@@ -20,6 +18,7 @@ function App() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [authStatus, setAuthStatus] = useState("initializing");
 
   const urlParams = new URLSearchParams(window.location.search);
   const siteUrl = urlParams.get("siteUrl") || "";
@@ -32,15 +31,19 @@ function App() {
         console.log("🔄 Initialisation Teams...");
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
+        setAuthStatus("teams_initialized");
         
-        // Obtenir le token d'authentification avec la bonne ressource
+        // Utiliser directement Microsoft Graph comme ressource
         const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: [`api://test-rssn.onrender.com/1135fab5-62e8-4cb1-b472-880c477a8812`]
+          resources: ["https://graph.microsoft.com"]
         });
         
-        console.log("✅ Token Teams obtenu");
+        console.log("✅ Token Microsoft Graph obtenu");
         const decoded = decodeJwt(authToken);
         console.log("👤 Utilisateur:", decoded?.preferred_username);
+        console.log("🔑 Scopes:", decoded?.scp);
+        
+        setAuthStatus("authenticated");
         
         // Initialiser Graph client
         const graph = Client.init({
@@ -51,8 +54,14 @@ function App() {
         setError(null);
         
       } catch (err) {
-        console.error("❌ Erreur Teams:", err);
-        setError("Erreur d'authentification: " + (err.message || err));
+        console.error("❌ Erreur d'authentification:", err);
+        setAuthStatus("error");
+        setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
+        
+        // Afficher plus de détails pour le débogage
+        if (err.message?.includes("IncorrectConfiguration") || err.message?.includes("Access denied")) {
+          setError(prev => prev + " - La ressource Microsoft Graph n'est pas autorisée. Vérifiez les permissions dans Azure AD.");
+        }
       }
     };
 
@@ -76,30 +85,36 @@ function App() {
       const hostname = new URL(siteUrl).hostname;
       console.log("🔍 Hostname:", hostname);
       
-      // Obtenir le site
+      // Obtenir le site - utiliser l'approche avec ":" pour le hostname
       const site = await graphClient.api(`/sites/${hostname}:`).get();
-      console.log("✅ Site trouvé:", site.displayName);
+      console.log("✅ Site trouvé:", site.displayName, "ID:", site.id);
 
       // Obtenir les drives (bibliothèques de documents)
       const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
-      console.log("📁 Drives disponibles:", drives.value.map(d => d.name));
+      console.log("📁 Drives disponibles:", drives.value.map(d => ({ name: d.name, id: d.id })));
       
       // Trouver le drive "Documents" ou le premier disponible
       const drive = drives.value.find(d => 
         d.name.toLowerCase().includes("document") || 
-        d.name.toLowerCase().includes("documents")
+        d.name.toLowerCase().includes("documents") ||
+        d.name.toLowerCase().includes("general")
       ) || drives.value[0];
       
       if (!drive) {
         throw new Error("Aucune bibliothèque de documents trouvée");
       }
       
-      console.log("✅ Drive sélectionné:", drive.name);
+      console.log("✅ Drive sélectionné:", drive.name, "ID:", drive.id);
 
       // Lister les fichiers dans le dossier spécifié
-      const apiPath = folderPath ? 
-        `/drives/${drive.id}/root:${folderPath}:/children` :
-        `/drives/${drive.id}/root/children`;
+      let apiPath;
+      if (folderPath && folderPath !== "/") {
+        // Encoder le chemin du dossier pour l'URL
+        const encodedPath = folderPath.startsWith("/") ? folderPath : `/${folderPath}`;
+        apiPath = `/drives/${drive.id}/root:${encodedPath}:/children`;
+      } else {
+        apiPath = `/drives/${drive.id}/root/children`;
+      }
       
       console.log("🔍 Chemin API:", apiPath);
       
@@ -111,12 +126,25 @@ function App() {
       setFiles(pdfFiles);
       
       if (pdfFiles.length === 0) {
-        setError("Aucun fichier PDF trouvé dans ce dossier");
+        setError("Aucun fichier PDF trouvé dans ce dossier. Formats supportés: .pdf");
+      } else {
+        console.log("✅ PDFs trouvés:", pdfFiles.map(f => f.name));
       }
 
     } catch (err) {
       console.error("❌ Erreur lors de la liste des PDF:", err);
-      setError("Erreur: " + (err.message || "Impossible de charger les fichiers"));
+      let errorMessage = "Erreur: " + (err.message || "Impossible de charger les fichiers");
+      
+      // Messages d'erreur plus spécifiques
+      if (err.statusCode === 403) {
+        errorMessage = "Accès refusé. Vérifiez les permissions SharePoint.";
+      } else if (err.statusCode === 404) {
+        errorMessage = "Site ou dossier non trouvé. Vérifiez l'URL.";
+      } else if (err.message?.includes("Invalid hostname")) {
+        errorMessage = "URL du site invalide. Format attendu: https://votredomaine.sharepoint.com/sites/votresite";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -140,7 +168,7 @@ function App() {
           page: '1'
         });
 
-      console.log("✅ URL d'aperçu générée");
+      console.log("✅ URL d'aperçu générée:", preview.getUrl);
       setPreviewUrl(preview.getUrl);
       
     } catch (err) {
@@ -160,10 +188,13 @@ function App() {
     <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
       <h2>📄 MultiHealth — PDF Viewer</h2>
       
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
         <p>
           <strong>Site:</strong> {siteUrl}<br />
-          <strong>Dossier:</strong> {folderPath || "/ (racine)"}
+          <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
+          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" : 
+                                  authStatus === "teams_initialized" ? "🔄 Authentification..." : 
+                                  authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
 
@@ -176,11 +207,28 @@ function App() {
           color: "white",
           border: "none",
           borderRadius: 4,
-          cursor: graphClient ? "pointer" : "not-allowed"
+          cursor: graphClient ? "pointer" : "not-allowed",
+          marginRight: 10
         }}
       >
         {loading ? "⏳ Chargement..." : "📂 Lister les fichiers PDF"}
       </button>
+
+      {graphClient && (
+        <button 
+          onClick={() => console.log("Client Graph:", graphClient)}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: "#6c757d",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer"
+          }}
+        >
+          Debug
+        </button>
+      )}
 
       {error && (
         <div style={{ 
@@ -201,7 +249,9 @@ function App() {
           padding: 10,
           marginTop: 10
         }}>
-          🔄 Initialisation de l'authentification...
+          🔄 {authStatus === "teams_initialized" ? 
+              "Authentification avec Microsoft Graph..." : 
+              "Initialisation de Teams..."}
         </div>
       )}
 
