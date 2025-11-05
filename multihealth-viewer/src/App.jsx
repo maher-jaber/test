@@ -37,30 +37,29 @@ function App() {
 
   /** ✅ Initialisation SSO Teams */
   useEffect(() => {
-    const initializeAuth = async () => {
+    const initializeTeams = async () => {
       try {
         await microsoftTeams.app.initialize();
         
-        // Demander explicitement le consentement
-        const authToken = await microsoftTeams.authentication.authenticate({
-          url: window.location.origin + "/auth.html",
-          width: 600,
-          height: 535
-        });
-  
-        console.log("✅ Token obtenu avec consentement");
+        // Obtenir le token d'authentification
+        const authToken = await microsoftTeams.authentication.getAuthToken();
+        
+        console.log("✅ Token Teams obtenu");
+        
+        // Initialiser Graph client
         const graph = Client.init({
           authProvider: (done) => done(null, authToken),
         });
+        
         setGraphClient(graph);
         
       } catch (err) {
-        console.error("❌ Erreur d'authentification :", err);
-        setError("Veuillez accepter les permissions pour continuer");
+        console.error("❌ Erreur Teams:", err);
+        setError("Problème d'authentification: " + err.message);
       }
     };
   
-    initializeAuth();
+    initializeTeams();
   }, []);
 
 
