@@ -6,16 +6,13 @@ import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
-const GRAPH_SCOPE = `api://${AZURE_APP_ID}/FilesRead`;
+const GRAPH_SCOPE = "https://graph.microsoft.com/Files.Read";
 
 const msalConfig = {
   auth: {
     clientId: AZURE_APP_ID,
-    authority: `https://login.microsoftonline.com/${process.env.REACT_APP_TENANT_ID || "common"}`
-  },
-  cache: {
-    cacheLocation: "sessionStorage",
-    storeAuthStateInCookie: false
+    authority: "https://login.microsoftonline.com/common",
+    redirectUri: window.location.origin
   }
 };
 
