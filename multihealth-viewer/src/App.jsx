@@ -4,6 +4,17 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 
+const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
+const CUSTOM_RESOURCE = `api://test-rssn.onrender.com/${AZURE_APP_ID}`;
+
+function decodeJwt(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
+    return null;
+  }
+}
+
 function App() {
   const [graphClient, setGraphClient] = useState(null);
   const [files, setFiles] = useState([]);
@@ -25,15 +36,21 @@ function App() {
         console.log("✅ Teams initialisé");
         setAuthStatus("teams_initialized");
         
-        // Utiliser Microsoft Graph directement (correspond au manifeste)
+        // Utiliser la ressource personnalisée
+        console.log("🔑 Demande de token pour:", CUSTOM_RESOURCE);
         const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: ["https://graph.microsoft.com"]
+          resources: [CUSTOM_RESOURCE]
         });
         
-        console.log("✅ Token Microsoft Graph obtenu");
+        console.log("✅ Token obtenu avec ressource personnalisée");
+        const decoded = decodeJwt(authToken);
+        console.log("👤 Utilisateur:", decoded?.preferred_username);
+        console.log("📋 Scopes dans le token:", decoded?.scp);
+        
         setAuthStatus("authenticated");
         
-        // Initialiser Graph client
+        // Utiliser le token directement pour Graph
+        // Le token a les scopes Graph même si on demande la ressource personnalisée
         const graph = Client.init({
           authProvider: (done) => done(null, authToken),
         });
@@ -44,12 +61,37 @@ function App() {
       } catch (err) {
         console.error("❌ Erreur d'authentification:", err);
         setAuthStatus("error");
-        setError("Erreur d'authentification: " + (err.message || err));
+        
+        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
+          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
+        } else {
+          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
+        }
       }
     };
 
     initializeTeams();
   }, []);
+
+  /** ✅ Tester la connexion Graph */
+  async function testGraphConnection() {
+    if (!graphClient) return;
+
+    try {
+      setLoading(true);
+      // Tester avec une requête simple
+      const user = await graphClient.api('/me').get();
+      console.log("✅ Test Graph réussi:", user.displayName);
+      setError(null);
+      return true;
+    } catch (err) {
+      console.error("❌ Test Graph échoué:", err);
+      setError("Erreur Graph: " + (err.message || err));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
 
   /** ✅ Lister les PDF */
   async function listPdfs() {
@@ -57,6 +99,10 @@ function App() {
       setError("Client Graph non initialisé");
       return;
     }
+
+    // Tester d'abord la connexion
+    const testOk = await testGraphConnection();
+    if (!testOk) return;
 
     setLoading(true);
     setError(null);
@@ -78,7 +124,8 @@ function App() {
       // Trouver le drive "Documents"
       const drive = drives.value.find(d => 
         d.name.toLowerCase().includes("document") || 
-        d.name.toLowerCase().includes("documents")
+        d.name.toLowerCase().includes("documents") ||
+        d.name.toLowerCase().includes("general")
       ) || drives.value[0];
       
       if (!drive) {
@@ -92,6 +139,8 @@ function App() {
         `/drives/${drive.id}/root:${folderPath}:/children` :
         `/drives/${drive.id}/root/children`;
       
+      console.log("🔍 Chemin API:", apiPath);
+      
       const response = await graphClient.api(apiPath).get();
       console.log("📄 Fichiers trouvés:", response.value.length);
 
@@ -101,11 +150,21 @@ function App() {
       
       if (pdfFiles.length === 0) {
         setError("Aucun fichier PDF trouvé dans ce dossier");
+      } else {
+        console.log("✅ PDFs trouvés:", pdfFiles.map(f => f.name));
       }
 
     } catch (err) {
       console.error("❌ Erreur lors de la liste des PDF:", err);
-      setError("Erreur: " + (err.message || "Impossible de charger les fichiers"));
+      let errorMessage = "Erreur: " + (err.message || "Impossible de charger les fichiers");
+      
+      if (err.statusCode === 403) {
+        errorMessage = "Accès refusé. Vérifiez les permissions dans Azure AD.";
+      } else if (err.statusCode === 404) {
+        errorMessage = "Site ou dossier non trouvé. Vérifiez l'URL.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -158,20 +217,40 @@ function App() {
         </p>
       </div>
 
-      <button 
-        onClick={listPdfs} 
-        disabled={!graphClient || loading}
-        style={{
-          padding: "10px 20px",
-          backgroundColor: graphClient ? "#0078d4" : "#ccc",
-          color: "white",
-          border: "none",
-          borderRadius: 4,
-          cursor: graphClient ? "pointer" : "not-allowed"
-        }}
-      >
-        {loading ? "⏳ Chargement..." : "📂 Lister les fichiers PDF"}
-      </button>
+      <div style={{ marginBottom: 10 }}>
+        <button 
+          onClick={listPdfs} 
+          disabled={!graphClient || loading}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: graphClient ? "#0078d4" : "#ccc",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: graphClient ? "pointer" : "not-allowed",
+            marginRight: 10
+          }}
+        >
+          {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
+        </button>
+
+        {graphClient && (
+          <button 
+            onClick={testGraphConnection}
+            disabled={loading}
+            style={{
+              padding: "10px 15px",
+              backgroundColor: "#6c757d",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer"
+            }}
+          >
+            Test Graph
+          </button>
+        )}
+      </div>
 
       {error && (
         <div style={{ 
@@ -183,6 +262,18 @@ function App() {
           border: "1px solid #ffcccc"
         }}>
           ❌ {error}
+        </div>
+      )}
+
+      {!graphClient && !error && (
+        <div style={{ 
+          color: "#666", 
+          padding: 10,
+          marginTop: 10
+        }}>
+          🔄 {authStatus === "teams_initialized" ? 
+              "Authentification avec ressource personnalisée..." : 
+              "Initialisation de Teams..."}
         </div>
       )}
 

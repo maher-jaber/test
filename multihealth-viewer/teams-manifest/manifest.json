@@ -39,6 +39,6 @@
   ],
   "webApplicationInfo": {
     "id": "1135fab5-62e8-4cb1-b472-880c477a8812",
-    "resource": "https://graph.microsoft.com"
+    "resource": "api://test-rssn.onrender.com/1135fab5-62e8-4cb1-b472-880c477a8812"
   }
 }
