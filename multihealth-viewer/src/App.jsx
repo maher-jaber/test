@@ -4,22 +4,13 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 
-const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
-
-function decodeJwt(token) {
-  try {
-    return JSON.parse(atob(token.split('.')[1]));
-  } catch (e) {
-    return null;
-  }
-}
-
 function App() {
   const [graphClient, setGraphClient] = useState(null);
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [authStatus, setAuthStatus] = useState("initializing");
 
   const urlParams = new URLSearchParams(window.location.search);
   const siteUrl = urlParams.get("siteUrl") || "";
@@ -32,15 +23,15 @@ function App() {
         console.log("🔄 Initialisation Teams...");
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
+        setAuthStatus("teams_initialized");
         
-        // Obtenir le token d'authentification avec la bonne ressource
+        // Utiliser Microsoft Graph directement (correspond au manifeste)
         const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: [`api://test-rssn.onrender.com/1135fab5-62e8-4cb1-b472-880c477a8812`]
+          resources: ["https://graph.microsoft.com"]
         });
         
-        console.log("✅ Token Teams obtenu");
-        const decoded = decodeJwt(authToken);
-        console.log("👤 Utilisateur:", decoded?.preferred_username);
+        console.log("✅ Token Microsoft Graph obtenu");
+        setAuthStatus("authenticated");
         
         // Initialiser Graph client
         const graph = Client.init({
@@ -51,7 +42,8 @@ function App() {
         setError(null);
         
       } catch (err) {
-        console.error("❌ Erreur Teams:", err);
+        console.error("❌ Erreur d'authentification:", err);
+        setAuthStatus("error");
         setError("Erreur d'authentification: " + (err.message || err));
       }
     };
@@ -72,7 +64,6 @@ function App() {
     try {
       console.log("📂 Recherche du site...");
       
-      // Extraire le hostname de l'URL du site
       const hostname = new URL(siteUrl).hostname;
       console.log("🔍 Hostname:", hostname);
       
@@ -80,11 +71,11 @@ function App() {
       const site = await graphClient.api(`/sites/${hostname}:`).get();
       console.log("✅ Site trouvé:", site.displayName);
 
-      // Obtenir les drives (bibliothèques de documents)
+      // Obtenir les drives
       const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
       console.log("📁 Drives disponibles:", drives.value.map(d => d.name));
       
-      // Trouver le drive "Documents" ou le premier disponible
+      // Trouver le drive "Documents"
       const drive = drives.value.find(d => 
         d.name.toLowerCase().includes("document") || 
         d.name.toLowerCase().includes("documents")
@@ -96,12 +87,10 @@ function App() {
       
       console.log("✅ Drive sélectionné:", drive.name);
 
-      // Lister les fichiers dans le dossier spécifié
+      // Lister les fichiers
       const apiPath = folderPath ? 
         `/drives/${drive.id}/root:${folderPath}:/children` :
         `/drives/${drive.id}/root/children`;
-      
-      console.log("🔍 Chemin API:", apiPath);
       
       const response = await graphClient.api(apiPath).get();
       console.log("📄 Fichiers trouvés:", response.value.length);
@@ -151,7 +140,6 @@ function App() {
     }
   }
 
-  /** ✅ Fermer l'aperçu */
   function closePreview() {
     setPreviewUrl(null);
   }
@@ -160,10 +148,13 @@ function App() {
     <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
       <h2>📄 MultiHealth — PDF Viewer</h2>
       
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
         <p>
           <strong>Site:</strong> {siteUrl}<br />
-          <strong>Dossier:</strong> {folderPath || "/ (racine)"}
+          <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
+          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" : 
+                                  authStatus === "teams_initialized" ? "🔄 Authentification..." : 
+                                  authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
 
@@ -192,16 +183,6 @@ function App() {
           border: "1px solid #ffcccc"
         }}>
           ❌ {error}
-        </div>
-      )}
-
-      {!graphClient && !error && (
-        <div style={{ 
-          color: "#666", 
-          padding: 10,
-          marginTop: 10
-        }}>
-          🔄 Initialisation de l'authentification...
         </div>
       )}
 

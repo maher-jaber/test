@@ -16,7 +16,7 @@
   },
   "description": {
     "short": "Viewer PDF depuis SharePoint",
-    "full": "Liste et aper\u00e7oit les fichiers PDF d'un dossier SharePoint via Microsoft Graph."
+    "full": "Liste et aperçoit les fichiers PDF d'un dossier SharePoint via Microsoft Graph."
   },
   "icons": {
     "color": "color.png",
@@ -28,20 +28,17 @@
       "entityId": "pdfViewerTab",
       "name": "PDF Viewer",
       "contentUrl": "https://test-rssn.onrender.com/?siteUrl=https://clinactcom.sharepoint.com/sites/LivretAccueil&folderPath=/General/Administratif",
-      "scopes": [
-        "personal"
-      ]
+      "websiteUrl": "https://test-rssn.onrender.com",
+      "scopes": ["personal"]
     }
   ],
-  "permissions": [
-    "identity"
-  ],
+  "permissions": ["identity"],
   "validDomains": [
     "test-rssn.onrender.com",
     "clinactcom.sharepoint.com"
   ],
   "webApplicationInfo": {
-  "id": "1135fab5-62e8-4cb1-b472-880c477a8812",
-  "resource": "api://test-rssn.onrender.com/1135fab5-62e8-4cb1-b472-880c477a8812"
-}
+    "id": "1135fab5-62e8-4cb1-b472-880c477a8812",
+    "resource": "https://graph.microsoft.com"
+  }
 }
