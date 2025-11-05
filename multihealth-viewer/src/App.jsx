@@ -94,81 +94,75 @@ function App() {
   }
 
   /** ✅ Lister les PDF */
-  async function listPdfs() {
-    if (!graphClient) {
-      setError("Client Graph non initialisé");
-      return;
-    }
-
-    // Tester d'abord la connexion
-    const testOk = await testGraphConnection();
-    if (!testOk) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      console.log("📂 Recherche du site...");
-      
-      const hostname = new URL(siteUrl).hostname;
-      console.log("🔍 Hostname:", hostname);
-      
-      // Obtenir le site
-      const site = await graphClient.api(`/sites/${hostname}:`).get();
-      console.log("✅ Site trouvé:", site.displayName);
-
-      // Obtenir les drives
-      const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
-      console.log("📁 Drives disponibles:", drives.value.map(d => d.name));
-      
-      // Trouver le drive "Documents"
-      const drive = drives.value.find(d => 
-        d.name.toLowerCase().includes("document") || 
-        d.name.toLowerCase().includes("documents") ||
-        d.name.toLowerCase().includes("general")
-      ) || drives.value[0];
-      
-      if (!drive) {
-        throw new Error("Aucune bibliothèque de documents trouvée");
-      }
-      
-      console.log("✅ Drive sélectionné:", drive.name);
-
-      // Lister les fichiers
-      const apiPath = folderPath ? 
-        `/drives/${drive.id}/root:${folderPath}:/children` :
-        `/drives/${drive.id}/root/children`;
-      
-      console.log("🔍 Chemin API:", apiPath);
-      
-      const response = await graphClient.api(apiPath).get();
-      console.log("📄 Fichiers trouvés:", response.value.length);
-
-      // Filtrer les PDF
-      const pdfFiles = response.value.filter(f => f.file && f.name.toLowerCase().endsWith(".pdf"));
-      setFiles(pdfFiles);
-      
-      if (pdfFiles.length === 0) {
-        setError("Aucun fichier PDF trouvé dans ce dossier");
-      } else {
-        console.log("✅ PDFs trouvés:", pdfFiles.map(f => f.name));
-      }
-
-    } catch (err) {
-      console.error("❌ Erreur lors de la liste des PDF:", err);
-      let errorMessage = "Erreur: " + (err.message || "Impossible de charger les fichiers");
-      
-      if (err.statusCode === 403) {
-        errorMessage = "Accès refusé. Vérifiez les permissions dans Azure AD.";
-      } else if (err.statusCode === 404) {
-        errorMessage = "Site ou dossier non trouvé. Vérifiez l'URL.";
-      }
-      
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
+ /** ✅ Lister les PDF (version identique au code mémorisé) */
+async function listPdfs() {
+  if (!graphClient) {
+    setError("Client Graph non initialisé");
+    return;
   }
+
+  // Test Graph avant
+  const testOk = await testGraphConnection();
+  if (!testOk) return;
+
+  setLoading(true);
+  setError(null);
+
+  try {
+    console.log("📂 Recherche du site via chemin complet...");
+
+    const hostname = new URL(siteUrl).hostname;
+    const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
+    const sitePath = pathParts.slice(1).join("/"); // /sites/MultiHealth → "MultiHealth"
+
+    console.log("🔍 SITE TARGET:", hostname, sitePath);
+
+    /** ✅ 1. récupérer le site correctement */
+    const site = await graphClient.api(`/sites/${hostname}:/sites/${sitePath}`).get();
+    console.log("✅ Site ID:", site.id);
+
+    /** ✅ 2. récupérer toutes les drives (bibliothèques documentaires) */
+    const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
+    console.log("📂 Drives trouvés:", drives.value.map(d => d.name));
+
+    /** ✅ 3. choisir le bon drive "Documents" */
+    let driveId = null;
+    for (let d of drives.value) {
+      if (d.name.toLowerCase().includes("document")) {
+        driveId = d.id;
+        console.log("✅ Drive sélectionnée:", d.name, d.id);
+        break;
+      }
+    }
+
+    if (!driveId) throw new Error("❌ Aucune bibliothèque de documents trouvée sur ce site");
+
+    /** ✅ 4. lister les enfants du dossier demandé */
+    console.log(`🔎 Path: /drives/${driveId}/root:${folderPath}:/children`);
+
+    const response = await graphClient
+      .api(`/drives/${driveId}/root:${folderPath}:/children`)
+      .get();
+
+    console.log("✅ Résultat Graph:", response.value.length);
+
+    const pdfs = response.value.filter(f =>
+      f.file && f.name.toLowerCase().endsWith(".pdf")
+    );
+
+    setFiles(pdfs);
+
+    if (pdfs.length === 0) {
+      setError("Aucun fichier PDF trouvé dans ce dossier");
+    }
+
+  } catch (err) {
+    console.error("❌ Erreur list PDFs:", err);
+    setError(err.message || "Erreur lors de la récupération des fichiers");
+  } finally {
+    setLoading(false);
+  }
+}
 
   /** ✅ Preview PDF */
   async function previewFile(file) {
