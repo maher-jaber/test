@@ -21,7 +21,11 @@ const msalConfig = {
 const loginRequest = {
   scopes: ["openid","profile","Files.Read.All","Sites.Read.All","offline_access"]
 };
-
+function decodeJwt (token) {
+  const base64Url = token.split('.')[1];
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(window.atob(base64));
+}
 function App() {
   const [msalInstance] = useState(new msal.PublicClientApplication(msalConfig));
   const [account, setAccount] = useState(null);
@@ -40,19 +44,20 @@ function App() {
       microsoftTeams.authentication.getAuthToken({
         successCallback: (token) => {
           console.log("✅ Token récupéré depuis Teams (SSO)");
-          const decoded = msal.TokenClaims(token);
+  
+          const decoded = decodeJwt(token);
           setAccount({ username: decoded.preferred_username });
   
-          msalInstance.setActiveAccount({ idTokenClaims: decoded });
-          initGraphClient({ idTokenClaims: decoded });
+          initGraphClient({ token });
         },
         failureCallback: (err) => {
           console.error("❌ Erreur récupération token Teams:", err);
-          signIn(); // fallback avec popup si pas possible
         }
       });
     });
   }, []);
+  
+  
 
   function initGraphClient(activeAccount) {
     const msalProvider = {
