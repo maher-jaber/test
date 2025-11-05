@@ -102,8 +102,7 @@ async function listPdfs() {
   }
 
   // Test Graph avant
-  const testOk = await testGraphConnection();
-  if (!testOk) return;
+  
 
   setLoading(true);
   setError(null);
