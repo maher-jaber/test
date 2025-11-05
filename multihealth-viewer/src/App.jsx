@@ -93,92 +93,185 @@ function App() {
     }
   }
 
-  /** ✅ Lister les PDFs via SharePoint REST API */
-  async function listPdfs() {
-    if (!siteUrl) {
-      setError("URL du site manquante");
-      return;
+  /** ✅ Lister les PDF */
+  /** ✅ Lister les PDF via SharePoint REST API */
+async function listPdfs() {
+  if (!graphClient) {
+    setError("Client Graph non initialisé");
+    return;
+  }
+
+  setLoading(true);
+  setError(null);
+
+  try {
+    console.log("📂 Tentative via SharePoint REST API...");
+    
+    // Utiliser l'API SharePoint REST directement avec le token Graph
+    const authToken = await microsoftTeams.authentication.getAuthToken();
+    
+    // Construire l'URL SharePoint REST
+    const siteUri = new URL(siteUrl);
+    const webUrl = `${siteUrl}/_api/web`;
+    
+    // Obtenir le dossier
+    const folderRelativeUrl = folderPath || 'Shared Documents';
+    const apiUrl = `${webUrl}/GetFolderByServerRelativeUrl('${folderRelativeUrl}')/Files`;
+    
+    console.log("🔍 URL SharePoint REST:", apiUrl);
+
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json;odata=verbose',
+        'Content-Type': 'application/json;odata=verbose',
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Erreur SharePoint: ${response.status} ${response.statusText}`);
     }
 
-    setLoading(true);
-    setError(null);
+    const data = await response.json();
+    const allFiles = data.d.results;
+    
+    console.log("📄 Fichiers trouvés via SharePoint:", allFiles.length);
 
-    try {
-      // Nettoyer le chemin du dossier
-      const cleanFolderPath = folderPath.replace(/^\/+|\/+$/g, '');
-      const relativePath = cleanFolderPath || 'Shared Documents';
-      
-      const apiUrl = `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${relativePath}')/Files`;
-      
-      console.log("🔍 Appel SharePoint:", apiUrl);
+    // Filtrer les PDFs et formater comme l'ancienne structure
+    const pdfFiles = allFiles.filter(f => f.Name.toLowerCase().endsWith('.pdf'));
+    
+    const formattedFiles = pdfFiles.map(f => ({
+      id: f.UniqueId,
+      name: f.Name,
+      webUrl: f.ServerRelativeUrl,
+      file: { mimeType: 'application/pdf' },
+      parentReference: {
+        driveId: 'sharepoint' // Valeur par défaut
+      }
+    }));
 
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json;odata=verbose',
-          'Content-Type': 'application/json;odata=verbose',
-        },
-        credentials: 'include'
+    setFiles(formattedFiles);
+    
+    if (pdfFiles.length === 0) {
+      setError("Aucun fichier PDF trouvé dans ce dossier");
+    } else {
+      console.log("✅ PDFs trouvés via SharePoint:", pdfFiles.map(f => f.Name));
+    }
+
+  } catch (err) {
+    console.error("❌ Erreur SharePoint REST:", err);
+    
+    // Fallback: Essayer avec l'ancienne méthode Graph
+    console.log("🔄 Tentative de fallback avec Graph API...");
+    await listPdfsWithGraphFallback();
+  } finally {
+    setLoading(false);
+  }
+}
+
+/** ✅ Fallback avec Graph API */
+async function listPdfsWithGraphFallback() {
+  try {
+    console.log("📂 Fallback: Recherche du site via Graph...");
+    
+    const hostname = new URL(siteUrl).hostname;
+    const site = await graphClient.api(`/sites/${hostname}:`).get();
+    console.log("✅ Site trouvé:", site.displayName);
+
+    const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
+    const drive = drives.value.find(d => 
+      d.name.toLowerCase().includes("document") || 
+      d.name.toLowerCase().includes("documents") ||
+      d.name.toLowerCase().includes("general")
+    ) || drives.value[0];
+    
+    if (!drive) {
+      throw new Error("Aucune bibliothèque de documents trouvée");
+    }
+
+    const apiPath = folderPath ? 
+      `/drives/${drive.id}/root:${folderPath}:/children` :
+      `/drives/${drive.id}/root/children`;
+    
+    const response = await graphClient.api(apiPath).get();
+    const pdfFiles = response.value.filter(f => f.file && f.name.toLowerCase().endsWith(".pdf"));
+    
+    setFiles(pdfFiles);
+    
+    if (pdfFiles.length === 0) {
+      setError("Aucun fichier PDF trouvé dans ce dossier");
+    }
+
+  } catch (err) {
+    console.error("❌ Erreur fallback Graph:", err);
+    setError("Impossible de charger les fichiers: " + (err.message || "Vérifiez l'URL et les permissions"));
+  }
+}
+
+/** ✅ Preview PDF direct depuis SharePoint */
+async function previewFile(file) {
+  setLoading(true);
+  setError(null);
+
+  try {
+    console.log("👀 Génération de l'aperçu direct pour:", file.name);
+    
+    // Méthode 1: URL directe vers le PDF dans SharePoint
+    let pdfUrl;
+    
+    if (file.webUrl) {
+      // Si on a l'URL SharePoint directe
+      pdfUrl = file.webUrl.startsWith('http') ? file.webUrl : `${siteUrl}${file.webUrl}`;
+    } else {
+      // Fallback: Construire l'URL
+      const encodedFileName = encodeURIComponent(file.name);
+      const folderSegment = folderPath ? `${folderPath}/` : '';
+      pdfUrl = `${siteUrl}/${folderSegment}${encodedFileName}`;
+    }
+    
+    console.log("🔗 URL PDF directe:", pdfUrl);
+    
+    // S'assurer que c'est bien une URL absolue
+    if (!pdfUrl.startsWith('http')) {
+      pdfUrl = `${siteUrl}${pdfUrl.startsWith('/') ? '' : '/'}${pdfUrl}`;
+    }
+    
+    setPreviewUrl(pdfUrl);
+    console.log("✅ Aperçu direct configuré");
+
+  } catch (err) {
+    console.error("❌ Erreur preview direct:", err);
+    
+    // Fallback: Essayer avec l'ancienne méthode Graph
+    console.log("🔄 Fallback: Aperçu via Graph API...");
+    await previewFileWithGraphFallback(file);
+  } finally {
+    setLoading(false);
+  }
+}
+
+/** ✅ Fallback preview avec Graph API */
+async function previewFileWithGraphFallback(file) {
+  try {
+    console.log("👀 Fallback: Génération de l'aperçu Graph pour:", file.name);
+    
+    const preview = await graphClient
+      .api(`/drives/${file.parentReference.driveId}/items/${file.id}/preview`)
+      .post({
+        viewer: "web",
+        allowEdit: false,
+        page: '1'
       });
 
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new Error("Accès refusé. Vérifiez vos permissions SharePoint.");
-        } else if (response.status === 404) {
-          throw new Error("Dossier non trouvé. Vérifiez le chemin.");
-        }
-        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const allFiles = data.d.results;
-      
-      console.log("📄 Fichiers bruts:", allFiles);
-
-      // Filtrer les PDFs
-      const pdfFiles = allFiles.filter(f => 
-        f.Name.toLowerCase().endsWith('.pdf')
-      );
-
-      setFiles(pdfFiles.map(f => ({
-        id: f.UniqueId,
-        name: f.Name,
-        webUrl: `${siteUrl}${f.ServerRelativeUrl}`,
-        serverRelativeUrl: f.ServerRelativeUrl,
-        lastModified: f.TimeLastModified,
-        size: f.Length
-      })));
-
-      if (pdfFiles.length === 0) {
-        setError("Aucun fichier PDF trouvé dans ce dossier");
-      } else {
-        console.log("✅ PDFs trouvés:", pdfFiles.length);
-      }
-
-    } catch (err) {
-      console.error("❌ Erreur SharePoint:", err);
-      setError(err.message || "Erreur lors du chargement des fichiers");
-    } finally {
-      setLoading(false);
-    }
+    console.log("✅ URL d'aperçu Graph générée");
+    setPreviewUrl(preview.getUrl);
+    
+  } catch (err) {
+    console.error("❌ Erreur preview Graph fallback:", err);
+    setError("Impossible de générer l'aperçu: " + (err.message || err));
   }
-
-  /** ✅ Preview PDF */
-   /** ✅ Preview PDF direct depuis SharePoint */
-   async function previewFile(file) {
-    try {
-      // URL directe vers le fichier dans SharePoint
-      const pdfUrl = `${siteUrl}/${file.serverRelativeUrl}`;
-      console.log("👀 Ouverture PDF:", pdfUrl);
-      
-      // Ouvrir dans un nouvel onglet ou intégrer
-      setPreviewUrl(pdfUrl);
-      
-    } catch (err) {
-      console.error("❌ Erreur preview:", err);
-      setError("Impossible d'ouvrir le PDF: " + err.message);
-    }
-  }
+}
 
   function closePreview() {
     setPreviewUrl(null);
@@ -186,35 +279,75 @@ function App() {
 
   return (
     <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
-      <h2>📄 MultiHealth — PDF Viewer (SharePoint Direct)</h2>
+      <h2>📄 MultiHealth — PDF Viewer</h2>
       
       <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
         <p>
           <strong>Site:</strong> {siteUrl}<br />
-          <strong>Dossier:</strong> {folderPath || "Shared Documents"}<br />
-          <strong>Statut:</strong> {authStatus === "initialized" ? "✅ Prêt" : "🔄 Initialisation..."}
+          <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
+          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" : 
+                                  authStatus === "teams_initialized" ? "🔄 Authentification..." : 
+                                  authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
 
-      <button 
-        onClick={listPdfs} 
-        disabled={loading || !siteUrl}
-        style={{
-          padding: "10px 20px",
-          backgroundColor: siteUrl ? "#0078d4" : "#ccc",
-          color: "white",
-          border: "none",
-          borderRadius: 4,
-          cursor: siteUrl ? "pointer" : "not-allowed"
-        }}
-      >
-        {loading ? "⏳ Chargement..." : "📂 Lister les PDF (SharePoint)"}
-      </button>
+      <div style={{ marginBottom: 10 }}>
+        <button 
+          onClick={listPdfs} 
+          disabled={!graphClient || loading}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: graphClient ? "#0078d4" : "#ccc",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: graphClient ? "pointer" : "not-allowed",
+            marginRight: 10
+          }}
+        >
+          {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
+        </button>
 
-      {/* Le reste du JSX reste identique */}
+        {graphClient && (
+          <button 
+            onClick={testGraphConnection}
+            disabled={loading}
+            style={{
+              padding: "10px 15px",
+              backgroundColor: "#6c757d",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer"
+            }}
+          >
+            Test Graph
+          </button>
+        )}
+      </div>
+
       {error && (
-        <div style={{ color: "red", marginTop: 10 }}>
+        <div style={{ 
+          color: "red", 
+          backgroundColor: "#ffe6e6",
+          padding: 10,
+          borderRadius: 4,
+          marginTop: 10,
+          border: "1px solid #ffcccc"
+        }}>
           ❌ {error}
+        </div>
+      )}
+
+      {!graphClient && !error && (
+        <div style={{ 
+          color: "#666", 
+          padding: 10,
+          marginTop: 10
+        }}>
+          🔄 {authStatus === "teams_initialized" ? 
+              "Authentification avec ressource personnalisée..." : 
+              "Initialisation de Teams..."}
         </div>
       )}
 
@@ -223,9 +356,28 @@ function App() {
           <h3>📋 Fichiers PDF ({files.length})</h3>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {files.map(f => (
-              <li key={f.id} style={{ padding: "10px", border: "1px solid #ddd", marginBottom: 5 }}>
+              <li key={f.id} style={{ 
+                padding: "10px", 
+                border: "1px solid #ddd", 
+                marginBottom: 5,
+                borderRadius: 4,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }}>
                 <span>📄 {f.name}</span>
-                <button onClick={() => previewFile(f)}>
+                <button 
+                  onClick={() => previewFile(f)}
+                  disabled={loading}
+                  style={{
+                    padding: "5px 10px",
+                    backgroundColor: "#28a745",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 3,
+                    cursor: "pointer"
+                  }}
+                >
                   {loading ? "⏳" : "Aperçu"}
                 </button>
               </li>
@@ -236,10 +388,36 @@ function App() {
 
       {previewUrl && (
         <div style={{ marginTop: 20 }}>
-          <button onClick={closePreview}>Fermer</button>
+          <div style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center",
+            marginBottom: 10 
+          }}>
+            <h3>👁️ Aperçu PDF</h3>
+            <button 
+              onClick={closePreview}
+              style={{
+                padding: "5px 10px",
+                backgroundColor: "#dc3545",
+                color: "white",
+                border: "none",
+                borderRadius: 3,
+                cursor: "pointer"
+              }}
+            >
+              Fermer
+            </button>
+          </div>
           <iframe 
             src={previewUrl} 
-            style={{ width: "100%", height: "80vh", border: "1px solid #ddd" }} 
+            title="preview"
+            style={{ 
+              width: "100%", 
+              height: "80vh", 
+              border: "1px solid #ddd",
+              borderRadius: 4
+            }} 
           />
         </div>
       )}
