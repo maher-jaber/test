@@ -5,7 +5,7 @@ import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
-const CUSTOM_RESOURCE = `api://test-rssn.onrender.com/${AZURE_APP_ID}`;
+
 
 function decodeJwt(token) {
   try {
@@ -37,8 +37,10 @@ function App() {
         setAuthStatus("teams_initialized");
         
         // Utiliser la ressource personnalisée
-        console.log("🔑 Demande de token pour:", CUSTOM_RESOURCE);
-        const authToken = await microsoftTeams.authentication.getAuthToken();
+        console.log("🔑 Demande de token pour:");
+        const authToken = await microsoftTeams.authentication.getAuthToken({
+          resources: ["https://graph.microsoft.com"]
+        });
         
         console.log("✅ Token obtenu avec ressource personnalisée");
         const decoded = decodeJwt(authToken);
