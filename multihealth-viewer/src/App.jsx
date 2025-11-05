@@ -166,7 +166,7 @@ function App() {
       <h2>MultiHealth — PDF Viewer</h2>
      
       <div style={{ marginTop: 12 }}>
-        <button onClick={listPdfs} disabled={!account || loading}>Lister les PDFs</button>
+        <button onClick={listPdfs} >Lister les PDFs</button>
       </div>
 
       {loading && <div>Chargement...</div>}
