@@ -38,9 +38,7 @@ function App() {
         
         // Utiliser la ressource personnalisée
         console.log("🔑 Demande de token pour:", CUSTOM_RESOURCE);
-        const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: [CUSTOM_RESOURCE]
-        });
+        const authToken = await microsoftTeams.authentication.getAuthToken();
         
         console.log("✅ Token obtenu avec ressource personnalisée");
         const decoded = decodeJwt(authToken);
