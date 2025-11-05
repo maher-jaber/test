@@ -64,7 +64,7 @@ function App() {
       getAccessToken: async () => {
         const request = { ...loginRequest, account: activeAccount };
         const response = await msalInstance.acquireTokenSilent(request).catch(async (e) => {
-          return await msalInstance.acquireTokenPopup(request);
+          await msalInstance.loginRedirect(request);
         });
         return response.accessToken;
       }
@@ -85,9 +85,9 @@ function App() {
   async function signIn() {
     try {
       setError(null);
-      const loginResponse = await msalInstance.loginPopup(loginRequest);
-      setAccount(loginResponse.account);
-      initGraphClient(loginResponse.account);
+  
+      await msalInstance.loginRedirect(loginRequest);
+  
     } catch (err) {
       setError(err.message || String(err));
     }
