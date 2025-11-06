@@ -47,57 +47,58 @@ function App() {
   const folderPath = urlParams.get("folderPath") || "";
 
   /** ✅ Initialisation SSO Teams */
-  let isWebTeams = false;
-
+ /** ✅ Initialisation SSO Teams + gestion Web/Desktop */
+/** ✅ Initialisation SSO Teams + gestion Web/Desktop */
 useEffect(() => {
   const initializeTeams = async () => {
     try {
-      await microsoftTeams.app.initialize();
 
-      // ✅ Détecter plateforme (web / desktop / mobile)
-      const context = await microsoftTeams.app.getContext();
-      console.log("🖥️ Teams Client Type:", context.app.host.clientType);
-
-      isWebTeams = context.app.host.clientType === "web";
-
-      // ✅ Si un token popup existe déjà → on l'utilise (pas de popup)
       const savedPopupToken = loadSavedPopupToken();
       if (savedPopupToken) {
-        console.log("✅ Token popup déjà enregistré → pas de popup");
+        console.log("🔁 Token popup trouvé → pas de popup ✅");
         initGraphClient(savedPopupToken);
-        setAccount({
-          username: decodeJwt(savedPopupToken)?.preferred_username,
-        });
+        setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
         setAuthStatus("authenticated");
         return;
       }
 
-      // ✅ Si Web Teams → ne PAS lancer automatiquement l'auth
-      if (isWebTeams) {
-        console.warn("⚠️ Teams Web détecté → popup non automatique");
-        setAuthStatus("needs_auth");
-        return; // ❗ stop ici, on attend le clic utilisateur
+      console.log("🔄 Initialisation Teams...");
+      await microsoftTeams.app.initialize();
+      console.log("✅ Teams initialisé");
+
+      const context = await microsoftTeams.app.getContext();
+      const isDesktop = context.app.host.clientType === "desktop";
+      console.log("💻 Client type:", isDesktop ? "Desktop" : "Web");
+
+      setAuthStatus("teams_initialized");
+
+      if (isDesktop) {
+        console.log("🔐 Desktop → getAuthToken()");
+        const authToken = await microsoftTeams.authentication.getAuthToken({
+          resources: ["https://graph.microsoft.com"]
+        });
+
+        console.log("✅ Token obtenu via Teams Desktop");
+
+        initGraphClient(authToken);
+        setAccount({ username: decodeJwt(authToken)?.preferred_username });
+        setAuthStatus("authenticated");
+
+      } else {
+        console.log("🌐 Web → auth dialog obligatoire");
+        openTeamsAuthDialog();
       }
 
-      // ✅ Si Desktop → tenter l’auth SSO automatique
-      console.log("🔐 Auth SSO automatique (Desktop)");
-      const authToken = await microsoftTeams.authentication.getAuthToken({
-        resources: ["https://graph.microsoft.com"]
-      });
-
-      console.log("✅ Token SSO obtenu");
-      initGraphClient(authToken);
-      setAccount({ username: decodeJwt(authToken)?.preferred_username });
-      setAuthStatus("authenticated");
-
     } catch (err) {
-      console.error("❌ Auth automatique échouée:", err);
-      setAuthStatus("needs_auth"); // ➕ montrer le bouton de popup
+      console.error("❌ Erreur d'authentification:", err);
+      setAuthStatus("error");
+      setError(err.message || JSON.stringify(err));
     }
   };
 
   initializeTeams();
 }, []);
+
 
   function saveTokenToLocalStorage(token) {
     const decoded = decodeJwt(token);
@@ -262,7 +263,7 @@ useEffect(() => {
               authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
-      {authStatus === "needs_auth" && (
+      {!account && (
         <button
           onClick={openTeamsAuthDialog}
           style={{
@@ -275,10 +276,9 @@ useEffect(() => {
             marginBottom: 20
           }}
         >
-          🔐 Connexion Microsoft Graph
+          🔐 Se connecter à Microsoft Graph
         </button>
       )}
-
       <div style={{ marginBottom: 10 }}>
         <button
           onClick={listPdfs}
