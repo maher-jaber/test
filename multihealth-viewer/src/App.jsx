@@ -94,202 +94,37 @@ function App() {
   }
 
   async function listPdfs() {
-    if (!graphClient) {
-      setError("Client Graph non initialisé");
-      return;
-    }
-  
-    setLoading(true);
-    setError(null);
-  
+    if (!graphClient) return;
+
     try {
-      console.log("📂 Début de la recherche...");
-      console.log("🔗 Site URL:", siteUrl);
-  
-      // TEST 1: D'abord vérifier que le token Graph fonctionne
-      try {
-        const user = await graphClient.api('/me').get();
-        console.log("✅ Test Graph /me réussi:", user.displayName);
-      } catch (testError) {
-        console.error("❌ Test Graph /me échoué:", testError);
-        throw new Error("Token Graph invalide: " + testError.message);
-      }
-  
-      // METHODE 1: Utiliser l'API SharePoint REST avec un token SharePoint
-      console.log("🔄 Tentative avec SharePoint REST API...");
-      
-      // Obtenir un token spécifique pour ce site SharePoint
-      const sharePointToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [siteUrl] // Utiliser l'URL du site comme ressource
-      });
-      
-      console.log("✅ Token SharePoint obtenu");
-  
-      // Nettoyer le chemin du dossier
-      let cleanFolderPath = folderPath || 'Shared Documents';
-      if (cleanFolderPath.startsWith('/')) {
-        cleanFolderPath = cleanFolderPath.substring(1);
-      }
-  
-      // Construire l'URL SharePoint REST
-      const apiUrl = `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${cleanFolderPath}')/Files`;
-      
-      console.log("🔍 URL SharePoint REST:", apiUrl);
-  
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json;odata=verbose',
-          'Content-Type': 'application/json;odata=verbose',
-          'Authorization': `Bearer ${sharePointToken}`
-        }
-      });
-  
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("❌ Erreur SharePoint REST:", response.status, errorText);
-        
-        if (response.status === 403) {
-          throw new Error("Accès refusé à SharePoint. Vérifiez les permissions.");
-        } else if (response.status === 404) {
-          throw new Error("Dossier non trouvé: " + cleanFolderPath);
-        }
-        throw new Error(`Erreur SharePoint ${response.status}: ${response.statusText}`);
-      }
-  
-      const data = await response.json();
-      const allFiles = data.d.results;
-      
-      console.log("📄 Fichiers trouvés via SharePoint REST:", allFiles.length);
-  
-      // Filtrer les PDFs et formater pour l'application
-      const pdfFiles = allFiles.filter(f => {
-        const isPdf = f.Name.toLowerCase().endsWith('.pdf');
-        if (isPdf) {
-          console.log("📋 PDF trouvé:", f.Name);
-        }
-        return isPdf;
-      });
-      
-      // Formater les fichiers pour garder la compatibilité
-      const formattedFiles = pdfFiles.map(f => ({
-        id: f.UniqueId || f.Id,
-        name: f.Name,
-        webUrl: f.ServerRelativeUrl,
-        file: { 
-          mimeType: 'application/pdf' 
-        },
-        parentReference: {
-          driveId: 'sharepoint'
-        },
-        '@microsoft.graph.downloadUrl': `${siteUrl}${f.ServerRelativeUrl}`,
-        // Ajouter les propriétés SharePoint pour le preview
-        _sharePointData: f
-      }));
-  
-      setFiles(formattedFiles);
-      
-      if (pdfFiles.length === 0) {
-        setError("Aucun fichier PDF trouvé dans le dossier: " + cleanFolderPath);
-      } else {
-        console.log("✅ PDFs trouvés:", pdfFiles.length);
-      }
-  
+      const hostname = new URL(siteUrl).hostname;
+      const site = await graphClient.api(`/sites/${hostname}`).get();
+
+      const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
+      const drive = drives.value.find(d => d.name.toLowerCase().includes("document"));
+
+      const response = await graphClient
+        .api(`/drives/${drive.id}/root:${folderPath}:/children`)
+        .get();
+
+      setFiles(response.value.filter(f => f.file && f.name.endsWith(".pdf")));
+
     } catch (err) {
-      console.error("❌ Erreur principale:", err);
-      
-      // Fallback: Essayer avec Graph API si SharePoint REST échoue
-      if (err.message.includes("Accès refusé") || err.message.includes("404")) {
-        console.log("🔄 Fallback: tentative avec Graph API...");
-        try {
-          await listPdfsWithGraphFallback();
-        } catch (graphError) {
-          console.error("❌ Fallback Graph échoué:", graphError);
-          setError(err.message + " | Fallback Graph: " + graphError.message);
-        }
-      } else {
-        setError(err.message);
-      }
-    } finally {
-      setLoading(false);
+      console.error(err);
+      setError(err.message);
     }
   }
-  
-  /** ✅ Fallback avec Graph API */
-  async function listPdfsWithGraphFallback() {
-    console.log("🔍 Fallback Graph: recherche du site...");
-    
-    const siteUri = new URL(siteUrl);
-    const hostname = siteUri.hostname;
-    
-    // Essayer de trouver le site par son hostname
-    const site = await graphClient.api(`/sites/${hostname}:`).get();
-    console.log("✅ Site trouvé via Graph:", site.displayName);
-  
-    // Utiliser le drive du site
-    const drive = await graphClient.api(`/sites/${site.id}/drive`).get();
-    console.log("📁 Drive trouvé:", drive.name);
-  
-    // Lister les fichiers
-    const apiPath = folderPath ? 
-      `/sites/${site.id}/drive/root:${folderPath}:/children` :
-      `/sites/${site.id}/drive/root/children`;
-    
-    console.log("🛣️ Chemin API Graph:", apiPath);
-    
-    const response = await graphClient.api(apiPath).get();
-    console.log("📄 Éléments Graph trouvés:", response.value.length);
-  
-    const pdfFiles = response.value.filter(f => f.file && f.name.toLowerCase().endsWith(".pdf"));
-    setFiles(pdfFiles);
-    
-    if (pdfFiles.length === 0) {
-      throw new Error("Aucun PDF trouvé avec Graph API");
-    }
-  }
-  
-  /** ✅ Preview PDF avec URL directe SharePoint */
+
+  /** ✅ Preview PDF */
   async function previewFile(file) {
-    setLoading(true);
-    setError(null);
-  
     try {
-      console.log("👀 Génération de l'aperçu pour:", file.name);
-  
-      // METHODE 1: URL directe SharePoint avec token
-      let pdfUrl;
-      
-      if (file.webUrl) {
-        // Si on a l'URL relative SharePoint
-        pdfUrl = file.webUrl.startsWith('http') ? file.webUrl : `${siteUrl}${file.webUrl}`;
-      } else if (file['@microsoft.graph.downloadUrl']) {
-        // Si on a l'URL de téléchargement Graph
-        pdfUrl = file['@microsoft.graph.downloadUrl'];
-      } else {
-        // Construire l'URL manuellement
-        const encodedFileName = encodeURIComponent(file.name);
-        const folderSegment = folderPath ? `${folderPath}/` : '';
-        pdfUrl = `${siteUrl}/${folderSegment}${encodedFileName}`;
-      }
-  
-      console.log("🔗 URL PDF:", pdfUrl);
-  
-      // Obtenir un token frais pour SharePoint
-      const sharePointToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [siteUrl]
-      });
-  
-      // Créer une URL avec le token pour l'authentification
-      const previewUrlWithAuth = `${pdfUrl}?web=1`;
-      
-      console.log("✅ URL d'aperçu générée");
-      setPreviewUrl(previewUrlWithAuth);
-  
+      const preview = await graphClient
+        .api(`/drives/${file.parentReference.driveId}/items/${file.id}/preview`)
+        .post({});
+
+      setPreviewUrl(preview.getUrl);
     } catch (err) {
-      console.error("❌ Erreur preview:", err);
-      setError("Impossible d'ouvrir le PDF: " + err.message);
-    } finally {
-      setLoading(false);
+      setError(err.message);
     }
   }
   function closePreview() {
