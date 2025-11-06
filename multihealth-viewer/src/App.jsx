@@ -3,8 +3,17 @@ import { createRoot } from 'react-dom/client';
 import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
+import * as msal from "@azure/msal-browser";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
+
+const msalInstance = new msal.PublicClientApplication({
+  auth: {
+    clientId: AZURE_APP_ID,
+  }
+});
+
+const GRAPH_SCOPES = ["User.Read", "Files.Read", "Sites.Read.All"];
 
 function decodeJwt(token) {
   try {
@@ -34,24 +43,33 @@ function App() {
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
         setAuthStatus("teams_initialized");
+
+        await microsoftTeams.app.initialize();
+        await microsoftTeams.app.getContext();
         
-        const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: ["https://graph.microsoft.com"]
+        // ✅ Récupère l'utilisateur Teams (id nécessaire à MSAL)
+        const authToken = await microsoftTeams.authentication.getAuthToken();
+        
+        const decoded = decodeJwt(authToken);
+        
+        const result = await msalInstance.acquireTokenSilent({
+          account: {
+            username: decoded.preferred_username
+          },
+          scopes: GRAPH_SCOPES
         });
         
-        console.log("✅ Token obtenu");
-        const decoded = decodeJwt(authToken);
-        console.log("👤 Utilisateur:", decoded?.preferred_username);
-        
-        setAuthStatus("authenticated");
+        // ✅ Maintenant c'est un vrai token Graph
+        const graphToken = result.accessToken;
         
         const graph = Client.init({
-          authProvider: (done) => done(null, authToken),
+          authProvider: (done) => done(null, graphToken),
         });
         
         setGraphClient(graph);
+        setAuthStatus("Authenticated");
         setError(null);
-        
+
       } catch (err) {
         console.error("❌ Erreur d'authentification:", err);
         setAuthStatus("error");
@@ -68,10 +86,10 @@ function App() {
       setError("Client Graph non initialisé");
       return;
     }
-  
+
     setLoading(true);
     setError(null);
-  
+
     try {
       console.log("🔍 Début de la recherche...");
       console.log("🔗 Site URL:", siteUrl);
@@ -97,7 +115,7 @@ function App() {
       // 3️⃣ Trouver la drive qui contient les documents
       let driveId = null;
       let selectedDrive = null;
-      
+
       for (let d of drives.value) {
         if (d.name.toLowerCase().includes("document") || d.driveType === "documentLibrary") {
           driveId = d.id;
@@ -141,11 +159,11 @@ function App() {
         if (isPdf) {
           console.log("📋 PDF trouvé:", f.name);
         }
-        return isPpdf;
+        return isPdf;
       });
 
       setFiles(pdfFiles);
-      
+
       if (pdfFiles.length === 0) {
         setError("Aucun fichier PDF trouvé dans le dossier: " + (folderPath || "racine"));
       } else {
@@ -154,7 +172,7 @@ function App() {
 
     } catch (err) {
       console.error("❌ Erreur lors du listage:", err);
-      
+
       // Gestion d'erreur détaillée
       if (err.statusCode === 404) {
         setError("Dossier non trouvé. Vérifiez le chemin: " + folderPath);
@@ -211,20 +229,20 @@ function App() {
   return (
     <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
       <h2>📄 MultiHealth — PDF Viewer</h2>
-      
+
       <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
         <p>
           <strong>Site:</strong> {siteUrl}<br />
           <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
-          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" : 
-                                  authStatus === "teams_initialized" ? "🔄 Authentification..." : 
-                                  authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
+          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" :
+            authStatus === "teams_initialized" ? "🔄 Authentification..." :
+              authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
 
       <div style={{ marginBottom: 10 }}>
-        <button 
-          onClick={listPdfs} 
+        <button
+          onClick={listPdfs}
           disabled={!graphClient || loading}
           style={{
             padding: "10px 20px",
@@ -241,8 +259,8 @@ function App() {
       </div>
 
       {error && (
-        <div style={{ 
-          color: "red", 
+        <div style={{
+          color: "red",
           backgroundColor: "#ffe6e6",
           padding: 10,
           borderRadius: 4,
@@ -258,9 +276,9 @@ function App() {
           <h3>📋 Fichiers PDF ({files.length})</h3>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {files.map(f => (
-              <li key={f.id} style={{ 
-                padding: "10px", 
-                border: "1px solid #ddd", 
+              <li key={f.id} style={{
+                padding: "10px",
+                border: "1px solid #ddd",
                 marginBottom: 5,
                 borderRadius: 4,
                 display: "flex",
@@ -268,7 +286,7 @@ function App() {
                 alignItems: "center"
               }}>
                 <span>📄 {f.name}</span>
-                <button 
+                <button
                   onClick={() => previewFile(f)}
                   disabled={loading}
                   style={{
@@ -290,14 +308,14 @@ function App() {
 
       {previewUrl && (
         <div style={{ marginTop: 20 }}>
-          <div style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 10 
+            marginBottom: 10
           }}>
             <h3>👁️ Aperçu PDF</h3>
-            <button 
+            <button
               onClick={closePreview}
               style={{
                 padding: "5px 10px",
@@ -311,15 +329,15 @@ function App() {
               Fermer
             </button>
           </div>
-          <iframe 
-            src={previewUrl} 
+          <iframe
+            src={previewUrl}
             title="preview"
-            style={{ 
-              width: "100%", 
-              height: "80vh", 
+            style={{
+              width: "100%",
+              height: "80vh",
               border: "1px solid #ddd",
               borderRadius: 4
-            }} 
+            }}
           />
         </div>
       )}
