@@ -93,7 +93,25 @@ function App() {
 
     initializeTeams();
   }, []);
-
+  function openTeamsAuthDialog() {
+    microsoftTeams.authentication.authenticate({
+      url: window.location.origin + "/auth.html",  // la page d’auth dans un dialog
+      width: 600,
+      height: 600,
+      successCallback: (resultToken) => {
+        console.log("✅ Auth dialog OK, token reçu:", resultToken);
+  
+        const account = msalInstance.getAllAccounts()[0];
+        setAccount(account);
+        initGraphClient(account);
+      },
+      failureCallback: (reason) => {
+        console.error("❌ Auth dialog erreur:", reason);
+        setError(reason);
+      }
+    });
+  }
+  
   function initGraphClient(activeAccount) {
     const msalProvider = {
       getAccessToken: async () => {
@@ -224,7 +242,22 @@ function App() {
                                   authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
-
+      {!account && (
+  <button
+    onClick={openTeamsAuthDialog}
+    style={{
+      padding: "10px 20px",
+      backgroundColor: "#0078d4",
+      color: "white",
+      border: "none",
+      borderRadius: 4,
+      cursor: "pointer",
+      marginBottom: 20
+    }}
+  >
+    🔐 Se connecter à Microsoft Graph
+  </button>
+)}
       <div style={{ marginBottom: 10 }}>
         <button 
           onClick={listPdfs} 
