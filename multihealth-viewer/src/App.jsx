@@ -47,59 +47,75 @@ function App() {
   const folderPath = urlParams.get("folderPath") || "";
 
   /** ✅ Initialisation SSO Teams */
- /** ✅ Initialisation SSO Teams + gestion Web/Desktop */
-/** ✅ Initialisation SSO Teams + gestion Web/Desktop */
-useEffect(() => {
-  const initializeTeams = async () => {
-    try {
+  useEffect(() => {
+    const initializeTeams = async () => {
+      try {
+        // ✅ vérifier si on a déjà un token sauvegardé du popup
+        const savedPopupToken = loadSavedPopupToken();
+        if (savedPopupToken) {
+          console.log("🔁 Token popup trouvé → pas de popup ✅");
+          initGraphClient(savedPopupToken);
+          setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
+          setAuthStatus("authenticated");
+          return;
+        }
 
-      const savedPopupToken = loadSavedPopupToken();
-      if (savedPopupToken) {
-        console.log("🔁 Token popup trouvé → pas de popup ✅");
-        initGraphClient(savedPopupToken);
-        setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
-        setAuthStatus("authenticated");
-        return;
-      }
+        console.log("🔄 Initialisation Teams...");
+        await microsoftTeams.app.initialize();
+        console.log("✅ Teams initialisé");
+        setAuthStatus("teams_initialized");
 
-      console.log("🔄 Initialisation Teams...");
-      await microsoftTeams.app.initialize();
-      console.log("✅ Teams initialisé");
-
-      const context = await microsoftTeams.app.getContext();
-      const isDesktop = context.app.host.clientType === "desktop";
-      console.log("💻 Client type:", isDesktop ? "Desktop" : "Web");
-
-      setAuthStatus("teams_initialized");
-
-      if (isDesktop) {
-        console.log("🔐 Desktop → getAuthToken()");
+        // Utiliser la ressource personnalisée
+        console.log("🔑 Demande de token pour:");
         const authToken = await microsoftTeams.authentication.getAuthToken({
           resources: ["https://graph.microsoft.com"]
         });
 
-        console.log("✅ Token obtenu via Teams Desktop");
+        console.log("✅ Token obtenu avec ressource personnalisée");
+        const decoded = decodeJwt(authToken);
+        console.log("👤 Utilisateur:", decoded?.preferred_username);
+        console.log("📋 Scopes dans le token:", decoded?.scp);
 
-        initGraphClient(authToken);
-        setAccount({ username: decodeJwt(authToken)?.preferred_username });
         setAuthStatus("authenticated");
 
-      } else {
-        console.log("🌐 Web → auth dialog obligatoire");
+        // Utiliser le token directement pour Graph
+        // Le token a les scopes Graph même si on demande la ressource personnalisée
+        const graph = Client.init({
+          authProvider: (done) => done(null, authToken),
+        });
+
+        setGraphClient(graph);
+        // ✅ On récupère les comptes que MSAL connaît réellement
+        const accounts = msalInstance.getAllAccounts();
+
+        if (accounts.length > 0) {
+          msalInstance.setActiveAccount(accounts[0]); // obligatoire
+          setAccount(accounts[0]);
+          initGraphClient(accounts[0]);
+        } else {
+          setError("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
+          setAccount(null);
+        }
+        setError(null);
+
+      } catch (err) {
+        console.error("❌ Erreur d'authentification:", err);
+        setAuthStatus("error");
+
+        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
+          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
+        } else {
+          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
+        }
+      }
+      if (!loadSavedPopupToken()) {
+        console.log("⚠️ Aucun token valide, ouverture du popup...");
         openTeamsAuthDialog();
       }
+    };
 
-    } catch (err) {
-      console.error("❌ Erreur d'authentification:", err);
-      setAuthStatus("error");
-      setError(err.message || JSON.stringify(err));
-    }
-  };
-
-  initializeTeams();
-}, []);
-
-
+    initializeTeams();
+  }, []);
   function saveTokenToLocalStorage(token) {
     const decoded = decodeJwt(token);
     const exp = decoded?.exp * 1000; // expiration en ms
