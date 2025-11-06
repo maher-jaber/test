@@ -48,60 +48,52 @@ function App() {
 
   /** ✅ Initialisation SSO Teams */
   useEffect(() => {
-    const initializeTeams = async () => {
+    const init = async () => {
       try {
         console.log("🔄 Initialisation Teams...");
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
-        setAuthStatus("teams_initialized");
-
-        // Utiliser la ressource personnalisée
-        console.log("🔑 Demande de token pour:");
+  
+        setAuthStatus("fetching_token");
+  
+        // ✅ Tentative SSO directe
         const authToken = await microsoftTeams.authentication.getAuthToken({
           resources: ["https://graph.microsoft.com"]
         });
-
-        console.log("✅ Token obtenu avec ressource personnalisée");
+  
+        console.log("✅ Token SSO reçu ✅");
         const decoded = decodeJwt(authToken);
         console.log("👤 Utilisateur:", decoded?.preferred_username);
-        console.log("📋 Scopes dans le token:", decoded?.scp);
-
-        setAuthStatus("authenticated");
-
-        // Utiliser le token directement pour Graph
-        // Le token a les scopes Graph même si on demande la ressource personnalisée
-        const graph = Client.init({
-          authProvider: (done) => done(null, authToken),
+  
+        // ✅ Init Graph directement avec ce token
+        initGraphClient(authToken);
+  
+        setAccount({
+          username: decoded?.preferred_username,
+          token: authToken
         });
-
-        setGraphClient(graph);
-        // ✅ On récupère les comptes que MSAL connaît réellement
-        const accounts = msalInstance.getAllAccounts();
-
-        if (accounts.length > 0) {
-          msalInstance.setActiveAccount(accounts[0]); // obligatoire
-          setAccount(accounts[0]);
-          initGraphClient(accounts[0]);
-        } else {
-          setError("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
-          setAccount(null);
-        }
-        setError(null);
-
+  
+        setAuthStatus("authenticated");
+  
+        // Auto-chargement des fichiers PDF après auth
+        listPdfs();
+  
       } catch (err) {
-        console.error("❌ Erreur d'authentification:", err);
-        setAuthStatus("error");
-
-        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
-          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
-        } else {
-          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
-        }
+        console.error("❌ SSO échoué:", err);
+  
+        setAuthStatus("needs_consent");
+  
+        /**
+         * ⚠️ Ici tu peux activer l'ouverture du dialog automatiquement
+         * si tu veux tenter d'obtenir le consentement.
+         */
+        openTeamsAuthDialog();
       }
     };
-
-    initializeTeams();
+  
+    init();
   }, []);
+  
   function openTeamsAuthDialog() {
     microsoftTeams.authentication.authenticate({
       url: window.location.origin + "/auth.html",
@@ -244,22 +236,7 @@ function App() {
               authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
-      {!account && (
-        <button
-          onClick={openTeamsAuthDialog}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: "#0078d4",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: "pointer",
-            marginBottom: 20
-          }}
-        >
-          🔐 Se connecter à Microsoft Graph
-        </button>
-      )}
+     
       <div style={{ marginBottom: 10 }}>
         <button
           onClick={listPdfs}
