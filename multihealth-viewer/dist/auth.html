@@ -7,55 +7,37 @@
   <script src="https://alcdn.msauth.net/browser/2.25.0/js/msal-browser.min.js"></script>
 </head>
 <body>
+
 <script>
-  microsoftTeams.app.initialize();
+microsoftTeams.app.initialize();
 
-  const msalConfig = {
-    auth: {
-      clientId: "1135fab5-62e8-4cb1-b472-880c477a8812",     // ✅ ton app id
-      authority: "https://login.microsoftonline.com/03d0481a-a8ca-44b5-aeec-9bb332d93868",
-      redirectUri: window.location.origin + "/auth.html"     // ✅ cette page
-    }
-  };
+const msalConfig = {
+  auth: {
+    clientId: "1135fab5-62e8-4cb1-b472-880c477a8812",   // ✅ Ton App ID Azure
+    authority: "https://login.microsoftonline.com/03d0481a-a8ca-44b5-aeec-9bb332d93868",
+    redirectUri: window.location.origin + "/auth.html"  // ✅ IMPORTANT
+  }
+};
 
-  const loginRequest = {
-    scopes: [
-      "openid",
-      "profile",
-      "User.Read",
-      "offline_access",
-      "Files.Read.All",
-      "Sites.Read.All"
-    ]
-  };
+const loginRequest = {
+  scopes: ["User.Read", "Files.Read.All", "Sites.Read.All", "offline_access"]
+};
 
-  const msalInstance = new msal.PublicClientApplication(msalConfig);
+const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-  // ✅ Obligatoire dans Teams: détecter retour MSAL après le popup
-  msalInstance.handleRedirectPromise()
-    .then((response) => {
-      if (response) {
-        console.log("✅ Auth OK:", response);
+// ✅ Quand MSAL revient après redirection, notifier Teams
+msalInstance.handleRedirectPromise().then((response) => {
+  if (response) {
+    console.log("✅ Auth MSAL OK");
+    microsoftTeams.authentication.notifySuccess(response.accessToken);
+  }
+}).catch(err => {
+  microsoftTeams.authentication.notifyFailure(err.toString());
+});
 
-        microsoftTeams.authentication.notifySuccess(response.accessToken);
-      }
-    })
-    .catch((error) => {
-      console.error("❌ Redirect error:", error);
-      microsoftTeams.authentication.notifyFailure(error.toString());
-    });
-
-  // ✅ Login popup quand Teams ouvre auth.html
-  msalInstance.loginPopup(loginRequest)
-    .then((result) => {
-      console.log("✅ Popup login success:", result);
-      microsoftTeams.authentication.notifySuccess(result.accessToken);
-    })
-    .catch((err) => {
-      console.error("❌ Popup login error:", err);
-      microsoftTeams.authentication.notifyFailure(err.toString());
-    });
-
+// ✅ 👇 PLUS DE loginPopup : Teams le bloque
+msalInstance.loginRedirect(loginRequest);
 </script>
+
 </body>
 </html>
