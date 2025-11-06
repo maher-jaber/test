@@ -28,6 +28,9 @@ const msalConfig = {
   }
 };
 
+const loginRequest = {
+  scopes: ["openid","profile","Files.Read.All","Sites.Read.All","offline_access","User.Read"]
+};
 function App() {
   const [msalInstance] = useState(new msal.PublicClientApplication(msalConfig));
   const [graphClient, setGraphClient] = useState(null);
