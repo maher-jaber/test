@@ -22,7 +22,8 @@ function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState("initializing");
-  
+  const [account, setAccount] = useState(null);
+  const [client, setClient] = useState(null);
 
   const urlParams = new URLSearchParams(window.location.search);
   const siteUrl = urlParams.get("siteUrl") || "";
@@ -57,6 +58,11 @@ function App() {
         });
         
         setGraphClient(graph);
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts && accounts.length > 0) {
+          setAccount(accounts[0]);
+          initGraphClient(accounts[0]);
+        }
         setError(null);
         
       } catch (err) {
@@ -74,14 +80,37 @@ function App() {
     initializeTeams();
   }, []);
 
+  function initGraphClient(activeAccount) {
+    const msalProvider = {
+      getAccessToken: async () => {
+        const request = { ...loginRequest, account: activeAccount };
+        const response = await msalInstance.acquireTokenSilent(request).catch(async (e) => {
+          return await msalInstance.acquireTokenPopup(request);
+        });
+        return response.accessToken;
+      }
+    };
+    const graphClient = Client.init({
+      authProvider: async (done) => {
+        try {
+          const token = await msalProvider.getAccessToken();
+          done(null, token);
+        } catch (err) {
+          done(err, null);
+        }
+      }
+    });
+    setClient(graphClient);
+  }
+
   /** ✅ Tester la connexion Graph */
   async function testGraphConnection() {
-    if (!graphClient) return;
+    if (!client) return;
 
     try {
       setLoading(true);
       // Tester avec une requête simple
-      const user = await graphClient.api('/me').get();
+      const user = await client.api('/me').get();
       console.log("✅ Test Graph réussi:", user.displayName);
       setError(null);
       return true;
@@ -108,11 +137,11 @@ function App() {
       console.log("🔍 SITE TARGET:", hostname, sitePath);
   
       // 1️⃣ Récupérer le site
-      const site = await graphClient.api(`/sites/${hostname}:/sites/${sitePath}`).get();
+      const site = await client.api(`/sites/${hostname}:/sites/${sitePath}`).get();
       console.log("✅ Site ID:", site.id);
   
       // 2️⃣ Récupérer TOUTES les drives (bibliothèques documentaires)
-      const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
+      const drives = await client.api(`/sites/${site.id}/drives`).get();
       console.log("📂 Drives trouvés:", drives.value.map(d => d.name));
   
       // 3️⃣ Trouver la drive qui contient ton dossier "Administratif"
@@ -130,7 +159,7 @@ function App() {
       // 4️⃣ Tester l'accès au dossier demandé
       console.log(`🔎 Test: /drives/${driveId}/root:${folderPath}:/children`);
   
-      const response = await graphClient
+      const response = await client
         .api(`/drives/${driveId}/root:${folderPath}:/children`)
         .get();
   
@@ -149,49 +178,21 @@ function App() {
   
   
   /** ✅ Preview PDF avec URL directe SharePoint */
-  async function previewFile(file) {
-    setLoading(true);
+  async function previewFile(item) {
+    if (!client) { setError('Graph client not initialized'); return; }
     setError(null);
-  
     try {
-      console.log("👀 Génération de l'aperçu pour:", file.name);
-  
-      // METHODE 1: URL directe SharePoint avec token
-      let pdfUrl;
-      
-      if (file.webUrl) {
-        // Si on a l'URL relative SharePoint
-        pdfUrl = file.webUrl.startsWith('http') ? file.webUrl : `${siteUrl}${file.webUrl}`;
-      } else if (file['@microsoft.graph.downloadUrl']) {
-        // Si on a l'URL de téléchargement Graph
-        pdfUrl = file['@microsoft.graph.downloadUrl'];
+      const res = await client.api(`/drives/${item.parentReference.driveId}/items/${item.id}/preview`).post({});
+      if (res && res.getUrl) {
+        setPreviewUrl(res.getUrl);
       } else {
-        // Construire l'URL manuellement
-        const encodedFileName = encodeURIComponent(file.name);
-        const folderSegment = folderPath ? `${folderPath}/` : '';
-        pdfUrl = `${siteUrl}/${folderSegment}${encodedFileName}`;
+        setError('Impossible d\'obtenir l\'URL de preview');
       }
-  
-      console.log("🔗 URL PDF:", pdfUrl);
-  
-      // Obtenir un token frais pour SharePoint
-      const sharePointToken = await microsoftTeams.authentication.getAuthToken({
-        resources: [siteUrl]
-      });
-  
-      // Créer une URL avec le token pour l'authentification
-      const previewUrlWithAuth = `${pdfUrl}?web=1`;
-      
-      console.log("✅ URL d'aperçu générée");
-      setPreviewUrl(previewUrlWithAuth);
-  
     } catch (err) {
-      console.error("❌ Erreur preview:", err);
-      setError("Impossible d'ouvrir le PDF: " + err.message);
-    } finally {
-      setLoading(false);
+      setError(err.message || String(err));
     }
   }
+  
   function closePreview() {
     setPreviewUrl(null);
   }
