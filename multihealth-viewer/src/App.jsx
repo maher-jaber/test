@@ -47,75 +47,58 @@ function App() {
   const folderPath = urlParams.get("folderPath") || "";
 
   /** ✅ Initialisation SSO Teams */
-  useEffect(() => {
-    const initializeTeams = async () => {
-      try {
-        // ✅ vérifier si on a déjà un token sauvegardé du popup
-        const savedPopupToken = loadSavedPopupToken();
-        if (savedPopupToken) {
-          console.log("🔁 Token popup trouvé → pas de popup ✅");
-          initGraphClient(savedPopupToken);
-          setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
-          setAuthStatus("authenticated");
-          return;
-        }
+  let isWebTeams = false;
 
-        console.log("🔄 Initialisation Teams...");
-        await microsoftTeams.app.initialize();
-        console.log("✅ Teams initialisé");
-        setAuthStatus("teams_initialized");
+useEffect(() => {
+  const initializeTeams = async () => {
+    try {
+      await microsoftTeams.app.initialize();
 
-        // Utiliser la ressource personnalisée
-        console.log("🔑 Demande de token pour:");
-        const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: ["https://graph.microsoft.com"]
+      // ✅ Détecter plateforme (web / desktop / mobile)
+      const context = await microsoftTeams.app.getContext();
+      console.log("🖥️ Teams Client Type:", context.app.host.clientType);
+
+      isWebTeams = context.app.host.clientType === "web";
+
+      // ✅ Si un token popup existe déjà → on l'utilise (pas de popup)
+      const savedPopupToken = loadSavedPopupToken();
+      if (savedPopupToken) {
+        console.log("✅ Token popup déjà enregistré → pas de popup");
+        initGraphClient(savedPopupToken);
+        setAccount({
+          username: decodeJwt(savedPopupToken)?.preferred_username,
         });
-
-        console.log("✅ Token obtenu avec ressource personnalisée");
-        const decoded = decodeJwt(authToken);
-        console.log("👤 Utilisateur:", decoded?.preferred_username);
-        console.log("📋 Scopes dans le token:", decoded?.scp);
-
         setAuthStatus("authenticated");
-
-        // Utiliser le token directement pour Graph
-        // Le token a les scopes Graph même si on demande la ressource personnalisée
-        const graph = Client.init({
-          authProvider: (done) => done(null, authToken),
-        });
-
-        setGraphClient(graph);
-        // ✅ On récupère les comptes que MSAL connaît réellement
-        const accounts = msalInstance.getAllAccounts();
-
-        if (accounts.length > 0) {
-          msalInstance.setActiveAccount(accounts[0]); // obligatoire
-          setAccount(accounts[0]);
-          initGraphClient(accounts[0]);
-        } else {
-          setError("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
-          setAccount(null);
-        }
-        setError(null);
-
-      } catch (err) {
-        console.error("❌ Erreur d'authentification:", err);
-        setAuthStatus("error");
-
-        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
-          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
-        } else {
-          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
-        }
+        return;
       }
-      if (!loadSavedPopupToken()) {
-        console.log("⚠️ Aucun token valide, ouverture du popup...");
-        openTeamsAuthDialog();
-      }
-    };
 
-    initializeTeams();
-  }, []);
+      // ✅ Si Web Teams → ne PAS lancer automatiquement l'auth
+      if (isWebTeams) {
+        console.warn("⚠️ Teams Web détecté → popup non automatique");
+        setAuthStatus("needs_auth");
+        return; // ❗ stop ici, on attend le clic utilisateur
+      }
+
+      // ✅ Si Desktop → tenter l’auth SSO automatique
+      console.log("🔐 Auth SSO automatique (Desktop)");
+      const authToken = await microsoftTeams.authentication.getAuthToken({
+        resources: ["https://graph.microsoft.com"]
+      });
+
+      console.log("✅ Token SSO obtenu");
+      initGraphClient(authToken);
+      setAccount({ username: decodeJwt(authToken)?.preferred_username });
+      setAuthStatus("authenticated");
+
+    } catch (err) {
+      console.error("❌ Auth automatique échouée:", err);
+      setAuthStatus("needs_auth"); // ➕ montrer le bouton de popup
+    }
+  };
+
+  initializeTeams();
+}, []);
+
   function saveTokenToLocalStorage(token) {
     const decoded = decodeJwt(token);
     const exp = decoded?.exp * 1000; // expiration en ms
@@ -279,7 +262,7 @@ function App() {
               authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
-      {!account && (
+      {authStatus === "needs_auth" && (
         <button
           onClick={openTeamsAuthDialog}
           style={{
@@ -292,9 +275,10 @@ function App() {
             marginBottom: 20
           }}
         >
-          🔐 Se connecter à Microsoft Graph
+          🔐 Connexion Microsoft Graph
         </button>
       )}
+
       <div style={{ marginBottom: 10 }}>
         <button
           onClick={listPdfs}
