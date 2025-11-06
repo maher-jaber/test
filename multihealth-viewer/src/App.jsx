@@ -119,10 +119,16 @@ function App() {
     const msalProvider = {
       getAccessToken: async () => {
         const request = { ...loginRequest, account: activeAccount };
-        const response = await msalInstance.acquireTokenSilent(request).catch(async (e) => {
-          return await msalInstance.acquireTokenPopup(request);
-        });
-        return response.accessToken;
+    
+        try {
+          // ✅ Tentative silencieuse
+          const response = await msalInstance.acquireTokenSilent(request);
+          return response.accessToken;
+        } catch (e) {
+          // ⛔ NE JAMAIS FAIRE de popup dans Teams
+          console.error("acquireTokenSilent failed — user must authenticate via Teams dialog");
+          throw e;
+        }
       }
     };
     const graphClient = Client.init({
