@@ -12,38 +12,50 @@
 
   const msalConfig = {
     auth: {
-      clientId: "1135fab5-62e8-4cb1-b472-880c477a8812",
+      clientId: "1135fab5-62e8-4cb1-b472-880c477a8812",     // ✅ ton app id
       authority: "https://login.microsoftonline.com/03d0481a-a8ca-44b5-aeec-9bb332d93868",
-      redirectUri: window.location.origin + "/auth.html"
+      redirectUri: window.location.origin + "/auth.html"     // ✅ cette page
     }
   };
 
   const loginRequest = {
-    scopes: ["User.Read", "Files.Read.All"]
+    scopes: [
+      "openid",
+      "profile",
+      "User.Read",
+      "offline_access",
+      "Files.Read.All",
+      "Sites.Read.All"
+    ]
   };
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-  async function login() {
-    try {
-      const result = await msalInstance.loginRedirect(loginRequest);
-    } catch (err) {
-      console.error(err);
+  // ✅ Obligatoire dans Teams: détecter retour MSAL après le popup
+  msalInstance.handleRedirectPromise()
+    .then((response) => {
+      if (response) {
+        console.log("✅ Auth OK:", response);
+
+        microsoftTeams.authentication.notifySuccess(response.accessToken);
+      }
+    })
+    .catch((error) => {
+      console.error("❌ Redirect error:", error);
+      microsoftTeams.authentication.notifyFailure(error.toString());
+    });
+
+  // ✅ Login popup quand Teams ouvre auth.html
+  msalInstance.loginPopup(loginRequest)
+    .then((result) => {
+      console.log("✅ Popup login success:", result);
+      microsoftTeams.authentication.notifySuccess(result.accessToken);
+    })
+    .catch((err) => {
+      console.error("❌ Popup login error:", err);
       microsoftTeams.authentication.notifyFailure(err.toString());
-    }
-  }
+    });
 
-  // Quand MSAL revient sur cette page après succès
-  msalInstance.handleRedirectPromise().then((response) => {
-    if (response) {
-      console.log("✅ Login response", response);
-
-      // ✅ Auth OK → informer Teams
-      microsoftTeams.authentication.notifySuccess("signed-in");
-    }
-  });
-
-  login();
 </script>
 </body>
 </html>

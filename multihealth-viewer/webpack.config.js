@@ -3,6 +3,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const webpack = require('webpack');
 const dotenv = require('dotenv').config({ path: './.env' });
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = (env) => ({
   entry: './src/index.jsx',
@@ -21,6 +22,11 @@ module.exports = (env) => ({
   },
   plugins: [
     new HtmlWebpackPlugin({ template: './public/index.html' }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'public/auth.html', to: 'auth.html' }
+      ]
+    }),
     new webpack.DefinePlugin({
       'process.env': JSON.stringify(dotenv.parsed) // injecte toutes les variables .env
     })
