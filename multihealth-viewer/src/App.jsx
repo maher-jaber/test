@@ -29,7 +29,7 @@ const msalConfig = {
 };
 
 const loginRequest = {
-  scopes: ["openid","profile","Files.Read.All","Sites.Read.All","offline_access","User.Read"]
+  scopes: ["openid", "profile", "Files.Read.All", "Sites.Read.All", "offline_access", "User.Read"]
 };
 function App() {
   const [msalInstance] = useState(new msal.PublicClientApplication(msalConfig));
@@ -54,45 +54,44 @@ function App() {
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
         setAuthStatus("teams_initialized");
-        
+
         // Utiliser la ressource personnalisée
         console.log("🔑 Demande de token pour:");
         const authToken = await microsoftTeams.authentication.getAuthToken({
           resources: ["https://graph.microsoft.com"]
         });
-        
+
         console.log("✅ Token obtenu avec ressource personnalisée");
         const decoded = decodeJwt(authToken);
         console.log("👤 Utilisateur:", decoded?.preferred_username);
         console.log("📋 Scopes dans le token:", decoded?.scp);
-        
+
         setAuthStatus("authenticated");
-        
+
         // Utiliser le token directement pour Graph
         // Le token a les scopes Graph même si on demande la ressource personnalisée
         const graph = Client.init({
           authProvider: (done) => done(null, authToken),
         });
-        
+
         setGraphClient(graph);
-        msalInstance.setActiveAccount({
-          username: decoded.preferred_username,
-          homeAccountId: decoded.oid,
-          tenantId: decoded.tid,
-          environment: "login.microsoftonline.com"
-        });
-        
-        const account = msalInstance.getActiveAccount();
-        setAccount(account);
-        
-        // ✅ init Graph MSAL silent
-        initGraphClient(account);
+        // ✅ On récupère les comptes que MSAL connaît réellement
+        const accounts = msalInstance.getAllAccounts();
+
+        if (accounts.length > 0) {
+          msalInstance.setActiveAccount(accounts[0]); // obligatoire
+          setAccount(accounts[0]);
+          initGraphClient(accounts[0]);
+        } else {
+          console.warn("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
+          setAccount(null);
+        }
         setError(null);
-        
+
       } catch (err) {
         console.error("❌ Erreur d'authentification:", err);
         setAuthStatus("error");
-        
+
         if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
           setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
         } else {
@@ -110,7 +109,7 @@ function App() {
       height: 600,
       successCallback: (resultToken) => {
         console.log("✅ Auth dialog OK, token reçu:", resultToken);
-  
+
         const account = msalInstance.getAllAccounts()[0];
         setAccount(account);
         initGraphClient(account);
@@ -121,12 +120,12 @@ function App() {
       }
     });
   }
-  
+
   function initGraphClient(activeAccount) {
     const msalProvider = {
       getAccessToken: async () => {
         const request = { ...loginRequest, account: activeAccount };
-    
+
         try {
           // ✅ Tentative silencieuse
           const response = await msalInstance.acquireTokenSilent(request);
@@ -172,26 +171,26 @@ function App() {
   }
 
   async function listPdfs() {
-   // if (!graphClient) return;
-  
+    // if (!graphClient) return;
+
     setLoading(true);
     setError(null);
-  
+
     try {
       const hostname = new URL(siteUrl).hostname;
       const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
       const sitePath = pathParts.slice(1).join("/");
-  
+
       console.log("🔍 SITE TARGET:", hostname, sitePath);
-  
+
       // 1️⃣ Récupérer le site
       const site = await client.api(`/sites/${hostname}:/sites/${sitePath}`).get();
       console.log("✅ Site ID:", site.id);
-  
+
       // 2️⃣ Récupérer TOUTES les drives (bibliothèques documentaires)
       const drives = await client.api(`/sites/${site.id}/drives`).get();
       console.log("📂 Drives trouvés:", drives.value.map(d => d.name));
-  
+
       // 3️⃣ Trouver la drive qui contient ton dossier "Administratif"
       let driveId = null;
       for (let d of drives.value) {
@@ -201,30 +200,30 @@ function App() {
           break;
         }
       }
-  
+
       if (!driveId) throw new Error("❌ Aucune bibliothèque de documents trouvée.");
-  
+
       // 4️⃣ Tester l'accès au dossier demandé
       console.log(`🔎 Test: /drives/${driveId}/root:${folderPath}:/children`);
-  
+
       const response = await client
         .api(`/drives/${driveId}/root:${folderPath}:/children`)
         .get();
-  
+
       console.log("✅ Résultat Graph:", response);
-  
+
       const pdfs = response.value.filter(f => f.file && f.name.endsWith(".pdf"));
       setFiles(pdfs);
-  
+
     } catch (e) {
       console.error("❌ ERREUR:", e);
       setError(e.message);
     }
-  
+
     setLoading(false);
   }
-  
-  
+
+
   /** ✅ Preview PDF avec URL directe SharePoint */
   async function previewFile(item) {
     if (!client) { setError('Graph client not initialized'); return; }
@@ -248,35 +247,35 @@ function App() {
   return (
     <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
       <h2>📄 MultiHealth — PDF Viewer</h2>
-      
+
       <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
         <p>
           <strong>Site:</strong> {siteUrl}<br />
           <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
-          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" : 
-                                  authStatus === "teams_initialized" ? "🔄 Authentification..." : 
-                                  authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
+          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" :
+            authStatus === "teams_initialized" ? "🔄 Authentification..." :
+              authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
       {!account && (
-  <button
-    onClick={openTeamsAuthDialog}
-    style={{
-      padding: "10px 20px",
-      backgroundColor: "#0078d4",
-      color: "white",
-      border: "none",
-      borderRadius: 4,
-      cursor: "pointer",
-      marginBottom: 20
-    }}
-  >
-    🔐 Se connecter à Microsoft Graph
-  </button>
-)}
+        <button
+          onClick={openTeamsAuthDialog}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: "#0078d4",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            marginBottom: 20
+          }}
+        >
+          🔐 Se connecter à Microsoft Graph
+        </button>
+      )}
       <div style={{ marginBottom: 10 }}>
-        <button 
-          onClick={listPdfs} 
+        <button
+          onClick={listPdfs}
           disabled={!graphClient || loading}
           style={{
             padding: "10px 20px",
@@ -292,7 +291,7 @@ function App() {
         </button>
 
         {graphClient && (
-          <button 
+          <button
             onClick={testGraphConnection}
             disabled={loading}
             style={{
@@ -310,8 +309,8 @@ function App() {
       </div>
 
       {error && (
-        <div style={{ 
-          color: "red", 
+        <div style={{
+          color: "red",
           backgroundColor: "#ffe6e6",
           padding: 10,
           borderRadius: 4,
@@ -323,14 +322,14 @@ function App() {
       )}
 
       {!graphClient && !error && (
-        <div style={{ 
-          color: "#666", 
+        <div style={{
+          color: "#666",
           padding: 10,
           marginTop: 10
         }}>
-          🔄 {authStatus === "teams_initialized" ? 
-              "Authentification avec ressource personnalisée..." : 
-              "Initialisation de Teams..."}
+          🔄 {authStatus === "teams_initialized" ?
+            "Authentification avec ressource personnalisée..." :
+            "Initialisation de Teams..."}
         </div>
       )}
 
@@ -339,9 +338,9 @@ function App() {
           <h3>📋 Fichiers PDF ({files.length})</h3>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {files.map(f => (
-              <li key={f.id} style={{ 
-                padding: "10px", 
-                border: "1px solid #ddd", 
+              <li key={f.id} style={{
+                padding: "10px",
+                border: "1px solid #ddd",
                 marginBottom: 5,
                 borderRadius: 4,
                 display: "flex",
@@ -349,7 +348,7 @@ function App() {
                 alignItems: "center"
               }}>
                 <span>📄 {f.name}</span>
-                <button 
+                <button
                   onClick={() => previewFile(f)}
                   disabled={loading}
                   style={{
@@ -371,14 +370,14 @@ function App() {
 
       {previewUrl && (
         <div style={{ marginTop: 20 }}>
-          <div style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 10 
+            marginBottom: 10
           }}>
             <h3>👁️ Aperçu PDF</h3>
-            <button 
+            <button
               onClick={closePreview}
               style={{
                 padding: "5px 10px",
@@ -392,15 +391,15 @@ function App() {
               Fermer
             </button>
           </div>
-          <iframe 
-            src={previewUrl} 
+          <iframe
+            src={previewUrl}
             title="preview"
-            style={{ 
-              width: "100%", 
-              height: "80vh", 
+            style={{
+              width: "100%",
+              height: "80vh",
               border: "1px solid #ddd",
               borderRadius: 4
-            }} 
+            }}
           />
         </div>
       )}
