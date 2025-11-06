@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Microsoft Auth</title>
+  <script src="https://res.cdn.office.net/teams-js/2.12.0/js/MicrosoftTeams.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/2.25.0/js/msal-browser.min.js"></script>
+</head>
+<body>
+<script>
+  microsoftTeams.app.initialize();
+
+  const msalConfig = {
+    auth: {
+      clientId: "1135fab5-62e8-4cb1-b472-880c477a8812",
+      authority: "https://login.microsoftonline.com/03d0481a-a8ca-44b5-aeec-9bb332d93868",
+      redirectUri: window.location.origin + "/auth.html"
+    }
+  };
+
+  const loginRequest = {
+    scopes: ["User.Read", "Files.Read.All"]
+  };
+
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+  async function login() {
+    try {
+      const result = await msalInstance.loginRedirect(loginRequest);
+    } catch (err) {
+      console.error(err);
+      microsoftTeams.authentication.notifyFailure(err.toString());
+    }
+  }
+
+  // Quand MSAL revient sur cette page après succès
+  msalInstance.handleRedirectPromise().then((response) => {
+    if (response) {
+      console.log("✅ Login response", response);
+
+      // ✅ Auth OK → informer Teams
+      microsoftTeams.authentication.notifySuccess("signed-in");
+    }
+  });
+
+  login();
+</script>
+</body>
+</html>
