@@ -7,11 +7,7 @@ import "regenerator-runtime/runtime";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
 
-const msalInstance = new msal.PublicClientApplication({
-  auth: {
-    clientId: AZURE_APP_ID,
-  },
-});
+let msalInstance = null;
 
 function decodeJwt(token) {
   try {
@@ -46,41 +42,63 @@ function App() {
       try {
         log("🚀 Initialisation Teams...");
         await microsoftTeams.app.initialize();
-
-        log("✅ Teams initialisé");
-        setAuthStatus("teams_initialized");
-
+  
+        const context = await microsoftTeams.app.getContext();
+        const tenantId = context.user.tenant.id;
+  
+        log("🏢 Tenant ID:", tenantId);
+  
+        msalInstance = new msal.PublicClientApplication({
+          auth: {
+            clientId: AZURE_APP_ID,
+            authority: `https://login.microsoftonline.com/${tenantId}`,  // ✅ tenant forcing
+          }
+        });
+  
+        log("🔐 Obtention token Teams...");
         const teamsToken = await microsoftTeams.authentication.getAuthToken();
+  
         const decoded = decodeJwt(teamsToken);
-        log("👤 Utilisateur :", decoded?.preferred_username);
-
+        log("👤 Utilisateur Teams:", decoded?.preferred_username);
+  
+        log("🔄 Demande token Graph via MSAL...");
         const graphScopes = ["Files.Read", "Sites.Read.All", "User.Read"];
-
-        log("🔐 Demande token Graph via MSAL...");
-
+  
         const msalResult = await msalInstance.acquireTokenSilent({
           scopes: graphScopes,
-          account: { username: decoded.preferred_username },
+          account: {
+            username: decoded.preferred_username
+          },
         });
-
-        log("✅ Token Graph OK");
-
+  
+        log("✅ Token Graph obtenu");
+  
         const graph = Client.init({
           authProvider: (done) => done(null, msalResult.accessToken),
         });
-
+  
         setGraphClient(graph);
         setAuthStatus("authenticated");
       } catch (err) {
         log("❌ Auth ERROR:", err);
+  
+        // 🔥 IMPORTANT : fallback interactif si silent échoue
+        if (err.errorCode === "authority_mismatch" || err.errorCode === "no_account_found") {
+          microsoftTeams.authentication.authenticate({
+            url: window.location.origin + "/auth-start.html",  // tu peux mettre une page vide
+            successCallback: () => initTeamsSSO(),
+            failureCallback: (reason) => setError(reason),
+          });
+        }
+  
         setAuthStatus("error");
         setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
       }
     };
-
+  
     initTeamsSSO();
   }, []);
-
+  
   /** ✅ LISTE LES PDFs */
   async function listPdfs() {
     if (!graphClient) {
