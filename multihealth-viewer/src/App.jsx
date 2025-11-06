@@ -75,11 +75,18 @@ function App() {
         });
         
         setGraphClient(graph);
-        const accounts = msalInstance.getAllAccounts();
-        if (accounts && accounts.length > 0) {
-          setAccount(accounts[0]);
-          initGraphClient(accounts[0]);
-        }
+        msalInstance.setActiveAccount({
+          username: decoded.preferred_username,
+          homeAccountId: decoded.oid,
+          tenantId: decoded.tid,
+          environment: "login.microsoftonline.com"
+        });
+        
+        const account = msalInstance.getActiveAccount();
+        setAccount(account);
+        
+        // ✅ init Graph MSAL silent
+        initGraphClient(account);
         setError(null);
         
       } catch (err) {
