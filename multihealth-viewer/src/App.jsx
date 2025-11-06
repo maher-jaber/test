@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Client } from "@microsoft/microsoft-graph-client";
 import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
+import * as msal from "@azure/msal-browser";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
 
@@ -15,7 +16,20 @@ function decodeJwt(token) {
   }
 }
 
+const msalConfig = {
+  auth: {
+    clientId: process.env.REACT_APP_CLIENT_ID || "",
+    authority: `https://login.microsoftonline.com/${process.env.REACT_APP_TENANT_ID || "common"}`,
+    redirectUri: window.location.origin + '/'
+  },
+  cache: {
+    cacheLocation: "sessionStorage",
+    storeAuthStateInCookie: false
+  }
+};
+
 function App() {
+  const [msalInstance] = useState(new msal.PublicClientApplication(msalConfig));
   const [graphClient, setGraphClient] = useState(null);
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -192,7 +206,7 @@ function App() {
       setError(err.message || String(err));
     }
   }
-  
+
   function closePreview() {
     setPreviewUrl(null);
   }
