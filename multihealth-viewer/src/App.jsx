@@ -48,74 +48,55 @@ function App() {
 
   /** ✅ Initialisation SSO Teams */
   useEffect(() => {
-    const initializeTeams = async () => {
+    async function initializeTeams() {
       try {
-        // ✅ vérifier si on a déjà un token sauvegardé du popup
+        // ✅ Si déjà token via popup → pas d'auth
         const savedPopupToken = loadSavedPopupToken();
         if (savedPopupToken) {
-          console.log("🔁 Token popup trouvé → pas de popup ✅");
+          console.log("🔁 Token popup trouvé → pas de popup");
           initGraphClient(savedPopupToken);
           setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
           setAuthStatus("authenticated");
           return;
         }
-
-        console.log("🔄 Initialisation Teams...");
+  
+        console.log("🔄 Initialisation Teams…");
         await microsoftTeams.app.initialize();
-        console.log("✅ Teams initialisé");
-        setAuthStatus("teams_initialized");
-
-        // Utiliser la ressource personnalisée
-        console.log("🔑 Demande de token pour:");
-        const authToken = await microsoftTeams.authentication.getAuthToken({
-          resources: ["https://graph.microsoft.com"]
-        });
-
-        console.log("✅ Token obtenu avec ressource personnalisée");
-        const decoded = decodeJwt(authToken);
-        console.log("👤 Utilisateur:", decoded?.preferred_username);
-        console.log("📋 Scopes dans le token:", decoded?.scp);
-
-        setAuthStatus("authenticated");
-
-        // Utiliser le token directement pour Graph
-        // Le token a les scopes Graph même si on demande la ressource personnalisée
-        const graph = Client.init({
-          authProvider: (done) => done(null, authToken),
-        });
-
-        setGraphClient(graph);
-        // ✅ On récupère les comptes que MSAL connaît réellement
-        const accounts = msalInstance.getAllAccounts();
-
-        if (accounts.length > 0) {
-          msalInstance.setActiveAccount(accounts[0]); // obligatoire
-          setAccount(accounts[0]);
-          initGraphClient(accounts[0]);
+        const context = await microsoftTeams.app.getContext();
+        const isDesktop = context.app.host.clientType === "desktop";
+        console.log("💻 Mode :", isDesktop ? "Desktop" : "Web");
+  
+        if (isDesktop) {
+          console.log("🔐 Desktop → Tentative SSO sans popup");
+  
+          const authToken = await microsoftTeams.authentication.getAuthToken({
+            resources: ["https://graph.microsoft.com"]
+          });
+  
+          console.log("✅ SSO Desktop OK");
+          initGraphClient(authToken);
+          setAccount({ username: decodeJwt(authToken)?.preferred_username });
+          setAuthStatus("authenticated");
         } else {
-          setError("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
-          setAccount(null);
+          console.log("🌐 Web → Auth dialog obligatoire");
+  
+          // ✅ On attend l'ouverture du popup dans Web, sinon Teams bloque
+          setTimeout(() => openTeamsAuthDialog(), 300);
+          setAuthStatus("waiting_for_web_popup");
         }
-        setError(null);
-
+  
       } catch (err) {
-        console.error("❌ Erreur d'authentification:", err);
-        setAuthStatus("error");
-
-        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
-          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
-        } else {
-          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
+        console.error("❌ Erreur SSO Teams:", err);
+  
+        // ❗ certaines erreurs doivent forcer login popup
+        if (!loadSavedPopupToken()) {
+          openTeamsAuthDialog();
         }
       }
-      if (!loadSavedPopupToken()) {
-        console.log("⚠️ Aucun token valide, ouverture du popup...");
-        openTeamsAuthDialog();
-      }
-    };
-
+    }
+  
     initializeTeams();
-  }, []);
+  }, []); // <-- ne jamais ajouter graphClient / msalInstance ici
   function saveTokenToLocalStorage(token) {
     const decoded = decodeJwt(token);
     const exp = decoded?.exp * 1000; // expiration en ms
