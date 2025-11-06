@@ -6,7 +6,6 @@ import * as microsoftTeams from "@microsoft/teams-js";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
 
-
 function decodeJwt(token) {
   try {
     return JSON.parse(atob(token.split('.')[1]));
@@ -36,21 +35,16 @@ function App() {
         console.log("✅ Teams initialisé");
         setAuthStatus("teams_initialized");
         
-        // Utiliser la ressource personnalisée
-        console.log("🔑 Demande de token pour:");
         const authToken = await microsoftTeams.authentication.getAuthToken({
           resources: ["https://graph.microsoft.com"]
         });
         
-        console.log("✅ Token obtenu avec ressource personnalisée");
+        console.log("✅ Token obtenu");
         const decoded = decodeJwt(authToken);
         console.log("👤 Utilisateur:", decoded?.preferred_username);
-        console.log("📋 Scopes dans le token:", decoded?.scp);
         
         setAuthStatus("authenticated");
         
-        // Utiliser le token directement pour Graph
-        // Le token a les scopes Graph même si on demande la ressource personnalisée
         const graph = Client.init({
           authProvider: (done) => done(null, authToken),
         });
@@ -61,72 +55,155 @@ function App() {
       } catch (err) {
         console.error("❌ Erreur d'authentification:", err);
         setAuthStatus("error");
-        
-        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
-          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
-        } else {
-          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
-        }
+        setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
       }
     };
 
     initializeTeams();
   }, []);
 
-  /** ✅ Tester la connexion Graph */
-  async function testGraphConnection() {
-    if (!graphClient) return;
-
+  /** ✅ Lister les PDFs avec la méthode éprouvée */
+  async function listPdfs() {
+    if (!graphClient) {
+      setError("Client Graph non initialisé");
+      return;
+    }
+  
+    setLoading(true);
+    setError(null);
+  
     try {
-      setLoading(true);
-      // Tester avec une requête simple
-      const user = await graphClient.api('/me').get();
-      console.log("✅ Test Graph réussi:", user.displayName);
-      setError(null);
-      return true;
+      console.log("🔍 Début de la recherche...");
+      console.log("🔗 Site URL:", siteUrl);
+      console.log("📁 Folder Path:", folderPath);
+
+      // Extraire l'hostname et le chemin du site
+      const hostname = new URL(siteUrl).hostname;
+      const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
+      const sitePath = pathParts.slice(1).join("/");
+
+      console.log("🌐 Hostname:", hostname);
+      console.log("🛣️ Site Path:", sitePath);
+
+      // 1️⃣ Récupérer le site SharePoint
+      const site = await graphClient.api(`/sites/${hostname}:/sites/${sitePath}`).get();
+      console.log("✅ Site ID:", site.id);
+      console.log("🏷️ Site Name:", site.displayName);
+
+      // 2️⃣ Récupérer TOUTES les drives (bibliothèques documentaires)
+      const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
+      console.log("📂 Drives trouvés:", drives.value.map(d => ({ name: d.name, id: d.id })));
+
+      // 3️⃣ Trouver la drive qui contient les documents
+      let driveId = null;
+      let selectedDrive = null;
+      
+      for (let d of drives.value) {
+        if (d.name.toLowerCase().includes("document") || d.driveType === "documentLibrary") {
+          driveId = d.id;
+          selectedDrive = d;
+          console.log("✅ Drive sélectionnée:", d.name, d.id);
+          break;
+        }
+      }
+
+      // Fallback: prendre la première drive si aucune trouvée
+      if (!driveId && drives.value.length > 0) {
+        driveId = drives.value[0].id;
+        selectedDrive = drives.value[0];
+        console.log("🔄 Fallback sur la première drive:", selectedDrive.name);
+      }
+
+      if (!driveId) throw new Error("❌ Aucune bibliothèque de documents trouvée.");
+
+      // 4️⃣ Construire le chemin API pour le dossier
+      let apiPath;
+      if (folderPath && folderPath.trim() !== "") {
+        // Nettoyer le chemin du dossier
+        let cleanFolderPath = folderPath.trim();
+        if (!cleanFolderPath.startsWith('/')) {
+          cleanFolderPath = '/' + cleanFolderPath;
+        }
+        apiPath = `/drives/${driveId}/root:${cleanFolderPath}:/children`;
+      } else {
+        apiPath = `/drives/${driveId}/root/children`;
+      }
+
+      console.log("🛣️ Chemin API Graph:", apiPath);
+
+      // 5️⃣ Récupérer les fichiers
+      const response = await graphClient.api(apiPath).get();
+      console.log("📄 Éléments trouvés:", response.value.length);
+
+      // 6️⃣ Filtrer les PDFs
+      const pdfFiles = response.value.filter(f => {
+        const isPdf = f.file && f.name.toLowerCase().endsWith(".pdf");
+        if (isPdf) {
+          console.log("📋 PDF trouvé:", f.name);
+        }
+        return isPpdf;
+      });
+
+      setFiles(pdfFiles);
+      
+      if (pdfFiles.length === 0) {
+        setError("Aucun fichier PDF trouvé dans le dossier: " + (folderPath || "racine"));
+      } else {
+        console.log("✅ PDFs trouvés:", pdfFiles.length);
+      }
+
     } catch (err) {
-      console.error("❌ Test Graph échoué:", err);
-      setError("Erreur Graph: " + (err.message || err));
-      return false;
+      console.error("❌ Erreur lors du listage:", err);
+      
+      // Gestion d'erreur détaillée
+      if (err.statusCode === 404) {
+        setError("Dossier non trouvé. Vérifiez le chemin: " + folderPath);
+      } else if (err.statusCode === 403) {
+        setError("Accès refusé. Vérifiez les permissions SharePoint.");
+      } else if (err.message?.includes("Invalid hostname")) {
+        setError("URL du site SharePoint invalide: " + siteUrl);
+      } else {
+        setError("Erreur: " + (err.message || JSON.stringify(err)));
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  async function listPdfs() {
-    if (!graphClient) return;
-
-    try {
-      const hostname = new URL(siteUrl).hostname;
-      const site = await graphClient.api(`/sites/${hostname}`).get();
-
-      const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
-      const drive = drives.value.find(d => d.name.toLowerCase().includes("document"));
-
-      const response = await graphClient
-        .api(`/drives/${drive.id}/root:${folderPath}:/children`)
-        .get();
-
-      setFiles(response.value.filter(f => f.file && f.name.endsWith(".pdf")));
-
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    }
-  }
-
-  /** ✅ Preview PDF */
+  /** ✅ Aperçu PDF avec l'API Graph */
   async function previewFile(file) {
+    if (!graphClient) {
+      setError("Client Graph non initialisé");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
     try {
-      const preview = await graphClient
+      console.log("👀 Génération de l'aperçu pour:", file.name);
+
+      // Utiliser l'API de preview de Graph
+      const previewResult = await graphClient
         .api(`/drives/${file.parentReference.driveId}/items/${file.id}/preview`)
         .post({});
 
-      setPreviewUrl(preview.getUrl);
+      console.log("✅ Résultat preview:", previewResult);
+
+      if (previewResult && previewResult.getUrl) {
+        setPreviewUrl(previewResult.getUrl);
+      } else {
+        throw new Error("Impossible de générer l'aperçu");
+      }
+
     } catch (err) {
-      setError(err.message);
+      console.error("❌ Erreur preview:", err);
+      setError("Impossible d'ouvrir le PDF: " + (err.message || JSON.stringify(err)));
+    } finally {
+      setLoading(false);
     }
   }
+
   function closePreview() {
     setPreviewUrl(null);
   }
@@ -161,23 +238,6 @@ function App() {
         >
           {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
         </button>
-
-        {graphClient && (
-          <button 
-            onClick={testGraphConnection}
-            disabled={loading}
-            style={{
-              padding: "10px 15px",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer"
-            }}
-          >
-            Test Graph
-          </button>
-        )}
       </div>
 
       {error && (
@@ -190,18 +250,6 @@ function App() {
           border: "1px solid #ffcccc"
         }}>
           ❌ {error}
-        </div>
-      )}
-
-      {!graphClient && !error && (
-        <div style={{ 
-          color: "#666", 
-          padding: 10,
-          marginTop: 10
-        }}>
-          🔄 {authStatus === "teams_initialized" ? 
-              "Authentification avec ressource personnalisée..." : 
-              "Initialisation de Teams..."}
         </div>
       )}
 
