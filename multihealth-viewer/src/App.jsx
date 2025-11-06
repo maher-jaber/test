@@ -1,24 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { Client } from "@microsoft/microsoft-graph-client";
-import 'regenerator-runtime/runtime';
 import * as microsoftTeams from "@microsoft/teams-js";
 import * as msal from "@azure/msal-browser";
+import "regenerator-runtime/runtime";
 
 const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
 
 const msalInstance = new msal.PublicClientApplication({
   auth: {
     clientId: AZURE_APP_ID,
-  }
+  },
 });
-
-const GRAPH_SCOPES = ["User.Read", "Files.Read", "Sites.Read.All"];
 
 function decodeJwt(token) {
   try {
-    return JSON.parse(atob(token.split('.')[1]));
-  } catch (e) {
+    return JSON.parse(atob(token.split(".")[1]));
+  } catch {
     return null;
   }
 }
@@ -28,6 +26,7 @@ function App() {
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [debugLogs, setDebugLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState("initializing");
 
@@ -35,52 +34,54 @@ function App() {
   const siteUrl = urlParams.get("siteUrl") || "";
   const folderPath = urlParams.get("folderPath") || "";
 
-  /** ✅ Initialisation SSO Teams */
+  /** 🔧 helper debug */
+  const log = (...msg) => {
+    console.log(...msg);
+    setDebugLogs((prev) => [...prev, msg.join(" ")]);
+  };
+
+  /** ✅ AUTHENTIFICATION SSO (Teams → JWT → MSAL → Token Graph) */
   useEffect(() => {
-    const initializeTeams = async () => {
+    const initTeamsSSO = async () => {
       try {
-        console.log("🔄 Initialisation Teams...");
+        log("🚀 Initialisation Teams...");
         await microsoftTeams.app.initialize();
-        console.log("✅ Teams initialisé");
+
+        log("✅ Teams initialisé");
         setAuthStatus("teams_initialized");
 
-        await microsoftTeams.app.initialize();
-        await microsoftTeams.app.getContext();
-        
-        // ✅ Récupère l'utilisateur Teams (id nécessaire à MSAL)
-        const authToken = await microsoftTeams.authentication.getAuthToken();
-        
-        const decoded = decodeJwt(authToken);
-        
-        const result = await msalInstance.acquireTokenSilent({
-          account: {
-            username: decoded.preferred_username
-          },
-          scopes: GRAPH_SCOPES
-        });
-        
-        // ✅ Maintenant c'est un vrai token Graph
-        const graphToken = result.accessToken;
-        
-        const graph = Client.init({
-          authProvider: (done) => done(null, graphToken),
-        });
-        
-        setGraphClient(graph);
-        setAuthStatus("Authenticated");
-        setError(null);
+        const teamsToken = await microsoftTeams.authentication.getAuthToken();
+        const decoded = decodeJwt(teamsToken);
+        log("👤 Utilisateur :", decoded?.preferred_username);
 
+        const graphScopes = ["Files.Read", "Sites.Read.All", "User.Read"];
+
+        log("🔐 Demande token Graph via MSAL...");
+
+        const msalResult = await msalInstance.acquireTokenSilent({
+          scopes: graphScopes,
+          account: { username: decoded.preferred_username },
+        });
+
+        log("✅ Token Graph OK");
+
+        const graph = Client.init({
+          authProvider: (done) => done(null, msalResult.accessToken),
+        });
+
+        setGraphClient(graph);
+        setAuthStatus("authenticated");
       } catch (err) {
-        console.error("❌ Erreur d'authentification:", err);
+        log("❌ Auth ERROR:", err);
         setAuthStatus("error");
         setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
       }
     };
 
-    initializeTeams();
+    initTeamsSSO();
   }, []);
 
-  /** ✅ Lister les PDFs avec la méthode éprouvée */
+  /** ✅ LISTE LES PDFs */
   async function listPdfs() {
     if (!graphClient) {
       setError("Client Graph non initialisé");
@@ -89,258 +90,119 @@ function App() {
 
     setLoading(true);
     setError(null);
+    setFiles([]);
 
     try {
-      console.log("🔍 Début de la recherche...");
-      console.log("🔗 Site URL:", siteUrl);
-      console.log("📁 Folder Path:", folderPath);
+      log("📂 Début listage PDF");
+      log("🌐 siteUrl:", siteUrl, " | folderPath:", folderPath);
 
-      // Extraire l'hostname et le chemin du site
       const hostname = new URL(siteUrl).hostname;
-      const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
-      const sitePath = pathParts.slice(1).join("/");
+      const sitePath = new URL(siteUrl).pathname.split("/").filter(Boolean).slice(1).join("/");
 
-      console.log("🌐 Hostname:", hostname);
-      console.log("🛣️ Site Path:", sitePath);
+      log("✅ Hostname:", hostname, " | sitePath:", sitePath);
 
-      // 1️⃣ Récupérer le site SharePoint
       const site = await graphClient.api(`/sites/${hostname}:/sites/${sitePath}`).get();
-      console.log("✅ Site ID:", site.id);
-      console.log("🏷️ Site Name:", site.displayName);
+      log("📌 site.id =", site.id);
 
-      // 2️⃣ Récupérer TOUTES les drives (bibliothèques documentaires)
       const drives = await graphClient.api(`/sites/${site.id}/drives`).get();
-      console.log("📂 Drives trouvés:", drives.value.map(d => ({ name: d.name, id: d.id })));
+      log("📁 Drives trouvés:", JSON.stringify(drives.value.map(d => d.name)));
 
-      // 3️⃣ Trouver la drive qui contient les documents
-      let driveId = null;
-      let selectedDrive = null;
+      let drive = drives.value.find(d => d.driveType === "documentLibrary") ?? drives.value[0];
 
-      for (let d of drives.value) {
-        if (d.name.toLowerCase().includes("document") || d.driveType === "documentLibrary") {
-          driveId = d.id;
-          selectedDrive = d;
-          console.log("✅ Drive sélectionnée:", d.name, d.id);
-          break;
-        }
-      }
+      if (!drive) throw new Error("Aucune library trouvée");
 
-      // Fallback: prendre la première drive si aucune trouvée
-      if (!driveId && drives.value.length > 0) {
-        driveId = drives.value[0].id;
-        selectedDrive = drives.value[0];
-        console.log("🔄 Fallback sur la première drive:", selectedDrive.name);
-      }
+      log("📌 Drive utilisée:", drive.name, "(", drive.id, ")");
 
-      if (!driveId) throw new Error("❌ Aucune bibliothèque de documents trouvée.");
+      const cleanPath = folderPath ? `/root:/${folderPath}:/children` : `/root/children`;
 
-      // 4️⃣ Construire le chemin API pour le dossier
-      let apiPath;
-      if (folderPath && folderPath.trim() !== "") {
-        // Nettoyer le chemin du dossier
-        let cleanFolderPath = folderPath.trim();
-        if (!cleanFolderPath.startsWith('/')) {
-          cleanFolderPath = '/' + cleanFolderPath;
-        }
-        apiPath = `/drives/${driveId}/root:${cleanFolderPath}:/children`;
-      } else {
-        apiPath = `/drives/${driveId}/root/children`;
-      }
+      log("🛣️ API:", `/drives/${drive.id}${cleanPath}`);
 
-      console.log("🛣️ Chemin API Graph:", apiPath);
+      const response = await graphClient.api(`/drives/${drive.id}${cleanPath}`).get();
 
-      // 5️⃣ Récupérer les fichiers
-      const response = await graphClient.api(apiPath).get();
-      console.log("📄 Éléments trouvés:", response.value.length);
-
-      // 6️⃣ Filtrer les PDFs
       const pdfFiles = response.value.filter(f => {
         const isPdf = f.file && f.name.toLowerCase().endsWith(".pdf");
-        if (isPdf) {
-          console.log("📋 PDF trouvé:", f.name);
-        }
+        if (isPdf) log("➡️ PDF trouvé:", f.name);
         return isPdf;
       });
 
       setFiles(pdfFiles);
 
-      if (pdfFiles.length === 0) {
-        setError("Aucun fichier PDF trouvé dans le dossier: " + (folderPath || "racine"));
-      } else {
-        console.log("✅ PDFs trouvés:", pdfFiles.length);
-      }
+      if (pdfFiles.length === 0) setError("Aucun PDF trouvé 💡");
 
+      log("✅ Fin listage:", pdfFiles.length, "PDFs trouvés");
     } catch (err) {
-      console.error("❌ Erreur lors du listage:", err);
-
-      // Gestion d'erreur détaillée
-      if (err.statusCode === 404) {
-        setError("Dossier non trouvé. Vérifiez le chemin: " + folderPath);
-      } else if (err.statusCode === 403) {
-        setError("Accès refusé. Vérifiez les permissions SharePoint.");
-      } else if (err.message?.includes("Invalid hostname")) {
-        setError("URL du site SharePoint invalide: " + siteUrl);
-      } else {
-        setError("Erreur: " + (err.message || JSON.stringify(err)));
-      }
+      log("❌ LIST ERROR:", err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  /** ✅ Aperçu PDF avec l'API Graph */
+  /** ✅ APERCU PDF */
   async function previewFile(file) {
-    if (!graphClient) {
-      setError("Client Graph non initialisé");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      console.log("👀 Génération de l'aperçu pour:", file.name);
-
-      // Utiliser l'API de preview de Graph
-      const previewResult = await graphClient
-        .api(`/drives/${file.parentReference.driveId}/items/${file.id}/preview`)
-        .post({});
-
-      console.log("✅ Résultat preview:", previewResult);
-
-      if (previewResult && previewResult.getUrl) {
-        setPreviewUrl(previewResult.getUrl);
-      } else {
-        throw new Error("Impossible de générer l'aperçu");
-      }
-
+      log("👀 Preview:", file.name);
+      const preview = await graphClient.api(`/drives/${file.parentReference.driveId}/items/${file.id}/preview`).post({});
+      setPreviewUrl(preview.getUrl);
     } catch (err) {
-      console.error("❌ Erreur preview:", err);
-      setError("Impossible d'ouvrir le PDF: " + (err.message || JSON.stringify(err)));
-    } finally {
-      setLoading(false);
+      log("❌ PREVIEW ERROR:", err);
+      setError("Impossible d'ouvrir ce PDF");
     }
-  }
-
-  function closePreview() {
-    setPreviewUrl(null);
   }
 
   return (
-    <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
-      <h2>📄 MultiHealth — PDF Viewer</h2>
+    <div style={{ padding: 20, fontFamily: "Segoe UI" }}>
+      <h2>📄 MultiHealth — PDF Viewer (debug)</h2>
 
-      <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
-        <p>
-          <strong>Site:</strong> {siteUrl}<br />
-          <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
-          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" :
-            authStatus === "teams_initialized" ? "🔄 Authentification..." :
-              authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
-        </p>
-      </div>
+      <p>
+        <strong>Statut auth :</strong> {authStatus}
+      </p>
 
-      <div style={{ marginBottom: 10 }}>
-        <button
-          onClick={listPdfs}
-          disabled={!graphClient || loading}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: graphClient ? "#0078d4" : "#ccc",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: graphClient ? "pointer" : "not-allowed",
-            marginRight: 10
-          }}
-        >
-          {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
-        </button>
-      </div>
+      <button onClick={listPdfs} disabled={!graphClient || loading}>
+        {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
+      </button>
 
       {error && (
-        <div style={{
-          color: "red",
-          backgroundColor: "#ffe6e6",
-          padding: 10,
-          borderRadius: 4,
-          marginTop: 10,
-          border: "1px solid #ffcccc"
-        }}>
+        <div style={{ background: "#ffdddd", padding: 10, marginTop: 10 }}>
           ❌ {error}
         </div>
       )}
 
       {files.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h3>📋 Fichiers PDF ({files.length})</h3>
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {files.map(f => (
-              <li key={f.id} style={{
-                padding: "10px",
-                border: "1px solid #ddd",
-                marginBottom: 5,
-                borderRadius: 4,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center"
-              }}>
-                <span>📄 {f.name}</span>
-                <button
-                  onClick={() => previewFile(f)}
-                  disabled={loading}
-                  style={{
-                    padding: "5px 10px",
-                    backgroundColor: "#28a745",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 3,
-                    cursor: "pointer"
-                  }}
-                >
-                  {loading ? "⏳" : "Aperçu"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul>
+          {files.map((f) => (
+            <li key={f.id}>
+              {f.name}
+              <button onClick={() => previewFile(f)}>👁️ Aperçu</button>
+            </li>
+          ))}
+        </ul>
       )}
 
       {previewUrl && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 10
-          }}>
-            <h3>👁️ Aperçu PDF</h3>
-            <button
-              onClick={closePreview}
-              style={{
-                padding: "5px 10px",
-                backgroundColor: "#dc3545",
-                color: "white",
-                border: "none",
-                borderRadius: 3,
-                cursor: "pointer"
-              }}
-            >
-              Fermer
-            </button>
-          </div>
-          <iframe
-            src={previewUrl}
-            title="preview"
-            style={{
-              width: "100%",
-              height: "80vh",
-              border: "1px solid #ddd",
-              borderRadius: 4
-            }}
-          />
-        </div>
+        <iframe src={previewUrl} style={{ width: "100%", height: "70vh", marginTop: 20 }} />
       )}
+
+      {/* ✅ OVERLAY DEBUG LOGS */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          right: 0,
+          width: "370px",
+          maxHeight: "250px",
+          overflowY: "auto",
+          background: "#111",
+          color: "#0f0",
+          fontSize: "12px",
+          padding: "10px",
+        }}
+      >
+        <strong>🟢 Debug logs :</strong>
+        {debugLogs.map((l, i) => (
+          <div key={i}>{l}</div>
+        ))}
+      </div>
     </div>
   );
 }
