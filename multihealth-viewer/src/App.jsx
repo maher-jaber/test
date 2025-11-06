@@ -48,52 +48,93 @@ function App() {
 
   /** ✅ Initialisation SSO Teams */
   useEffect(() => {
-    const init = async () => {
+    const initializeTeams = async () => {
       try {
+        // ✅ vérifier si on a déjà un token sauvegardé du popup
+        const savedPopupToken = loadSavedPopupToken();
+        if (savedPopupToken) {
+          console.log("🔁 Token popup trouvé → pas de popup ✅");
+          initGraphClient(savedPopupToken);
+          setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
+          setAuthStatus("authenticated");
+          return;
+        }
+
         console.log("🔄 Initialisation Teams...");
         await microsoftTeams.app.initialize();
         console.log("✅ Teams initialisé");
-  
-        setAuthStatus("fetching_token");
-  
-        // ✅ Tentative SSO directe
+        setAuthStatus("teams_initialized");
+
+        // Utiliser la ressource personnalisée
+        console.log("🔑 Demande de token pour:");
         const authToken = await microsoftTeams.authentication.getAuthToken({
           resources: ["https://graph.microsoft.com"]
         });
-  
-        console.log("✅ Token SSO reçu ✅");
+
+        console.log("✅ Token obtenu avec ressource personnalisée");
         const decoded = decodeJwt(authToken);
         console.log("👤 Utilisateur:", decoded?.preferred_username);
-  
-        // ✅ Init Graph directement avec ce token
-        initGraphClient(authToken);
-  
-        setAccount({
-          username: decoded?.preferred_username,
-          token: authToken
-        });
-  
+        console.log("📋 Scopes dans le token:", decoded?.scp);
+
         setAuthStatus("authenticated");
-  
-        // Auto-chargement des fichiers PDF après auth
-        listPdfs();
-  
+
+        // Utiliser le token directement pour Graph
+        // Le token a les scopes Graph même si on demande la ressource personnalisée
+        const graph = Client.init({
+          authProvider: (done) => done(null, authToken),
+        });
+
+        setGraphClient(graph);
+        // ✅ On récupère les comptes que MSAL connaît réellement
+        const accounts = msalInstance.getAllAccounts();
+
+        if (accounts.length > 0) {
+          msalInstance.setActiveAccount(accounts[0]); // obligatoire
+          setAccount(accounts[0]);
+          initGraphClient(accounts[0]);
+        } else {
+          setError("⚠️ MSAL n'a aucun compte. On force une authentification Teams dialog.");
+          setAccount(null);
+        }
+        setError(null);
+
       } catch (err) {
-        console.error("❌ SSO échoué:", err);
-  
-        setAuthStatus("needs_consent");
-  
-        /**
-         * ⚠️ Ici tu peux activer l'ouverture du dialog automatiquement
-         * si tu veux tenter d'obtenir le consentement.
-         */
+        console.error("❌ Erreur d'authentification:", err);
+        setAuthStatus("error");
+
+        if (err.message?.includes("Invalid resource") || err.message?.includes("650057")) {
+          setError("Configuration Azure AD manquante: La ressource personnalisée n'est pas configurée dans Azure AD. Vérifiez 'Exposer une API'.");
+        } else {
+          setError("Erreur d'authentification: " + (err.message || JSON.stringify(err)));
+        }
+      }
+      if (!loadSavedPopupToken()) {
+        console.log("⚠️ Aucun token valide, ouverture du popup...");
         openTeamsAuthDialog();
       }
     };
-  
-    init();
+
+    initializeTeams();
   }, []);
-  
+  function saveTokenToLocalStorage(token) {
+    const decoded = decodeJwt(token);
+    const exp = decoded?.exp * 1000; // expiration en ms
+
+    localStorage.setItem("popupToken", token);
+    localStorage.setItem("popupTokenExpires", exp.toString());
+  }
+
+  function loadSavedPopupToken() {
+    const token = localStorage.getItem("popupToken");
+    const exp = parseInt(localStorage.getItem("popupTokenExpires") || "0");
+
+    if (!token || Date.now() > exp) {
+      return null;
+    }
+
+    return token;
+  }
+
   function openTeamsAuthDialog() {
     microsoftTeams.authentication.authenticate({
       url: window.location.origin + "/auth.html",
@@ -101,16 +142,18 @@ function App() {
       height: 600,
       successCallback: (accessToken) => {
         console.log("✅ Token reçu depuis auth.html:", accessToken);
-  
+
+        // ✅ Sauvegarder le token du popup pour ne plus redemander l’auth
+        saveTokenToLocalStorage(accessToken);
         // ✅ Pas besoin de MSAL ici ! On utilise directement le token.
         initGraphClient(accessToken);
-  
+
         // ✅ Sauvegarder "visuellement" que l'utilisateur est connecté
         setAccount({
           username: decodeJwt(accessToken)?.preferred_username,
           token: accessToken
         });
-  
+
         setAuthStatus("authenticated");
       },
       failureCallback: (reason) => {
@@ -124,7 +167,7 @@ function App() {
     const graph = Client.init({
       authProvider: (done) => done(null, accessToken)
     });
-  
+
     setClient(graph);
     setGraphClient(graph);
   }
@@ -236,7 +279,22 @@ function App() {
               authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
-     
+      {!account && (
+        <button
+          onClick={openTeamsAuthDialog}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: "#0078d4",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            marginBottom: 20
+          }}
+        >
+          🔐 Se connecter à Microsoft Graph
+        </button>
+      )}
       <div style={{ marginBottom: 10 }}>
         <button
           onClick={listPdfs}
