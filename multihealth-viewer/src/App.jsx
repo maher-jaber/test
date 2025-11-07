@@ -77,13 +77,12 @@ function App() {
           initGraphClient(authToken);
           setAccount({ username: decodeJwt(authToken)?.preferred_username });
           setAuthStatus("authenticated");
-        } else {
-          console.log("🌐 Web → Auth dialog obligatoire");
+        } 
   
           // ✅ On attend l'ouverture du popup dans Web, sinon Teams bloque
           setTimeout(() => openTeamsAuthDialog(), 300);
           setAuthStatus("waiting_for_web_popup");
-        }
+        
   
       } catch (err) {
         console.error("❌ Erreur SSO Teams:", err);
