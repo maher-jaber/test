@@ -50,70 +50,42 @@ function App() {
   useEffect(() => {
     async function initializeTeams() {
       try {
-        // ✅ Si déjà token via popup → pas d'auth
-       /* const savedPopupToken = loadSavedPopupToken();
-        if (savedPopupToken) {
-          console.log("🔁 Token popup trouvé → pas de popup");
-          initGraphClient(savedPopupToken);
-          setAccount({ username: decodeJwt(savedPopupToken)?.preferred_username });
-          setAuthStatus("authenticated");
-          return;
-        }*/
-  
+
+
         console.log("🔄 Initialisation Teams…");
         await microsoftTeams.app.initialize();
         const context = await microsoftTeams.app.getContext();
         const isDesktop = context.app.host.clientType === "desktop";
         console.log("💻 Mode :", isDesktop ? "Desktop" : "Web");
-  
+
         if (isDesktop) {
           console.log("🔐 Desktop → Tentative SSO sans popup");
-  
+
           const authToken = await microsoftTeams.authentication.getAuthToken({
             resources: ["https://graph.microsoft.com"]
           });
-  
+
           console.log("✅ SSO Desktop OK");
           initGraphClient(authToken);
           setAccount({ username: decodeJwt(authToken)?.preferred_username });
           setAuthStatus("authenticated");
-        } 
-  
-          // ✅ On attend l'ouverture du popup dans Web, sinon Teams bloque
-          setTimeout(() => openTeamsAuthDialog(), 300);
-          setAuthStatus("waiting_for_web_popup");
-        
-  
+        }
+
+
+        setTimeout(() => openTeamsAuthDialog(), 300);
+        setAuthStatus("waiting_for_web_popup");
+
+
       } catch (err) {
         console.error("❌ Erreur SSO Teams:", err);
-  
-        // ❗ certaines erreurs doivent forcer login popup
-       // if (!loadSavedPopupToken()) {
-          openTeamsAuthDialog();
-        //}
+        openTeamsAuthDialog();
+
       }
     }
-  
+
     initializeTeams();
-  }, []); // <-- ne jamais ajouter graphClient / msalInstance ici
-  function saveTokenToLocalStorage(token) {
-    const decoded = decodeJwt(token);
-    const exp = decoded?.exp * 1000; // expiration en ms
+  }, []);
 
-    localStorage.setItem("popupToken", token);
-    localStorage.setItem("popupTokenExpires", exp.toString());
-  }
-
-  function loadSavedPopupToken() {
-    const token = localStorage.getItem("popupToken");
-    const exp = parseInt(localStorage.getItem("popupTokenExpires") || "0");
-
-    if (!token || Date.now() > exp) {
-      return null;
-    }
-
-    return token;
-  }
 
   function openTeamsAuthDialog() {
     microsoftTeams.authentication.authenticate({
@@ -123,8 +95,6 @@ function App() {
       successCallback: (accessToken) => {
         console.log("✅ Token reçu depuis auth.html:", accessToken);
 
-        // ✅ Sauvegarder le token du popup pour ne plus redemander l’auth
-       // saveTokenToLocalStorage(accessToken);
         // ✅ Pas besoin de MSAL ici ! On utilise directement le token.
         initGraphClient(accessToken);
 
@@ -247,11 +217,19 @@ function App() {
   }
 
   return (
-    <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
-      <h2>📄 MultiHealth — PDF Viewer</h2>
-
-      <div style={{ marginBottom: 20, padding: 10, backgroundColor: "#f5f5f5", borderRadius: 4 }}>
-        <p>
+    <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
+      <h2 style={{ marginBottom: 20, color: "#323130" }}>📄 MultiHealth — PDF Viewer</h2>
+  
+      {/* Info Site / Dossier */}
+      <div style={{
+        padding: 15,
+        borderRadius: 8,
+        backgroundColor: "#ffffff",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        marginBottom: 20,
+        color: "#323130"
+      }}>
+        <p style={{ margin: 0, lineHeight: 1.6 }}>
           <strong>Site:</strong> {siteUrl}<br />
           <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
           <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" :
@@ -259,22 +237,31 @@ function App() {
               authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
         </p>
       </div>
+  
+      {/* Connexion */}
       {!account && (
         <button
           onClick={openTeamsAuthDialog}
           style={{
             padding: "10px 20px",
             backgroundColor: "#0078d4",
-            color: "white",
+            color: "#ffffff",
             border: "none",
-            borderRadius: 4,
+            borderRadius: 6,
             cursor: "pointer",
-            marginBottom: 20
+            marginBottom: 20,
+            fontWeight: 500,
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            transition: "background 0.2s"
           }}
+          onMouseOver={e => e.currentTarget.style.backgroundColor = "#005a9e"}
+          onMouseOut={e => e.currentTarget.style.backgroundColor = "#0078d4"}
         >
           🔐 Se connecter à Microsoft Graph
         </button>
       )}
+  
+      {/* Lister PDF */}
       <div style={{ marginBottom: 10 }}>
         <button
           onClick={listPdfs}
@@ -282,85 +269,88 @@ function App() {
           style={{
             padding: "10px 20px",
             backgroundColor: graphClient ? "#0078d4" : "#ccc",
-            color: "white",
+            color: "#ffffff",
             border: "none",
-            borderRadius: 4,
+            borderRadius: 6,
             cursor: graphClient ? "pointer" : "not-allowed",
+            fontWeight: 500,
+            boxShadow: graphClient ? "0 2px 4px rgba(0,0,0,0.1)" : "none",
+            transition: "background 0.2s",
             marginRight: 10
           }}
+          onMouseOver={e => graphClient && (e.currentTarget.style.backgroundColor = "#005a9e")}
+          onMouseOut={e => graphClient && (e.currentTarget.style.backgroundColor = "#0078d4")}
         >
           {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
         </button>
-
-        {graphClient && (
-          <button
-            onClick={testGraphConnection}
-            disabled={loading}
-            style={{
-              padding: "10px 15px",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer"
-            }}
-          >
-            Test Graph
-          </button>
-        )}
       </div>
-
+  
+      {/* Erreur */}
       {error && (
         <div style={{
-          color: "red",
-          backgroundColor: "#ffe6e6",
-          padding: 10,
-          borderRadius: 4,
+          color: "#a80000",
+          backgroundColor: "#fde7e9",
+          padding: 12,
+          borderRadius: 6,
           marginTop: 10,
-          border: "1px solid #ffcccc"
+          border: "1px solid #f5c2c7",
+          fontWeight: 500
         }}>
           ❌ {error}
         </div>
       )}
-
+  
+      {/* Initialisation */}
       {!graphClient && !error && (
         <div style={{
-          color: "#666",
+          color: "#605e5c",
           padding: 10,
-          marginTop: 10
+          marginTop: 10,
+          fontStyle: "italic"
         }}>
           🔄 {authStatus === "teams_initialized" ?
             "Authentification avec ressource personnalisée..." :
             "Initialisation de Teams..."}
         </div>
       )}
-
+  
+      {/* Liste PDF */}
       {files.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <h3>📋 Fichiers PDF ({files.length})</h3>
+          <h3 style={{ color: "#323130", marginBottom: 10 }}>📋 Fichiers PDF ({files.length})</h3>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {files.map(f => (
               <li key={f.id} style={{
-                padding: "10px",
+                padding: "12px 15px",
                 border: "1px solid #ddd",
-                marginBottom: 5,
-                borderRadius: 4,
+                marginBottom: 8,
+                borderRadius: 8,
+                backgroundColor: "#ffffff",
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center"
-              }}>
+                alignItems: "center",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                transition: "transform 0.1s",
+              }}
+                onMouseOver={e => e.currentTarget.style.transform = "scale(1.02)"}
+                onMouseOut={e => e.currentTarget.style.transform = "scale(1)"}
+              >
                 <span>📄 {f.name}</span>
                 <button
                   onClick={() => previewFile(f)}
                   disabled={loading}
                   style={{
-                    padding: "5px 10px",
+                    padding: "6px 14px",
                     backgroundColor: "#28a745",
-                    color: "white",
+                    color: "#ffffff",
                     border: "none",
-                    borderRadius: 3,
-                    cursor: "pointer"
+                    borderRadius: 5,
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    transition: "background 0.2s"
                   }}
+                  onMouseOver={e => e.currentTarget.style.backgroundColor = "#218838"}
+                  onMouseOut={e => e.currentTarget.style.backgroundColor = "#28a745"}
                 >
                   {loading ? "⏳" : "Aperçu"}
                 </button>
@@ -369,7 +359,8 @@ function App() {
           </ul>
         </div>
       )}
-
+  
+      {/* Aperçu PDF */}
       {previewUrl && (
         <div style={{ marginTop: 20 }}>
           <div style={{
@@ -378,17 +369,21 @@ function App() {
             alignItems: "center",
             marginBottom: 10
           }}>
-            <h3>👁️ Aperçu PDF</h3>
+            <h3 style={{ color: "#323130" }}>👁️ Aperçu PDF</h3>
             <button
               onClick={closePreview}
               style={{
-                padding: "5px 10px",
+                padding: "6px 14px",
                 backgroundColor: "#dc3545",
-                color: "white",
+                color: "#ffffff",
                 border: "none",
-                borderRadius: 3,
-                cursor: "pointer"
+                borderRadius: 5,
+                cursor: "pointer",
+                fontWeight: 500,
+                transition: "background 0.2s"
               }}
+              onMouseOver={e => e.currentTarget.style.backgroundColor = "#b02a37"}
+              onMouseOut={e => e.currentTarget.style.backgroundColor = "#dc3545"}
             >
               Fermer
             </button>
@@ -400,13 +395,16 @@ function App() {
               width: "100%",
               height: "80vh",
               border: "1px solid #ddd",
-              borderRadius: 4
+              borderRadius: 8,
+              backgroundColor: "#ffffff",
+              boxShadow: "0 1px 5px rgba(0,0,0,0.1)"
             }}
           />
         </div>
       )}
     </div>
   );
+  
 }
 
 createRoot(document.getElementById("root")).render(<App />);
