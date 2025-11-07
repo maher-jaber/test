@@ -1,8 +1,8 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.11/MicrosoftTeams.schema.json",
   "manifestVersion": "1.11",
-  "version": "1.6.4",
-  "id": "9dc02a12-ed8a-438b-8ef6-c00590454d50",
+  "version": "1.6.5",
+  "id": "4bc513e6-9d7e-4ba1-b8c0-e60b00a6ffb4",
   "packageName": "com.multihealth.viewer",
   "developer": {
     "name": "Multihealth",
@@ -11,7 +11,7 @@
     "termsOfUseUrl": "https://www.multihealthgroup.com/fr/legal-notice/"
   },
   "name": {
-    "short": "MultiHealth-2",
+    "short": "MultiHealth-v2",
     "full": "MultiHealth PDF Viewer"
   },
   "description": {
