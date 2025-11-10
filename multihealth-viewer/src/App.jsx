@@ -84,6 +84,11 @@ function App() {
     }
 
     initializeTeams();
+    setLoading(true);
+    setTimeout(function () {
+      listPdfs();
+    }, 3000);
+
   }, []);
 
 
@@ -95,14 +100,10 @@ function App() {
       successCallback: (accessToken) => {
         console.log("✅ Token reçu depuis auth.html:", accessToken);
 
-        initGraphClient(accessToken)
-          .then(() => {
-            setLoading(true);
-            setTimeout(function () {
-              listPdfs();
-            }, 3000)
-          });  // ⬅️ Auto listing après auth
+        // ✅ Pas besoin de MSAL ici ! On utilise directement le token.
+        initGraphClient(accessToken);
 
+        // ✅ Sauvegarder "visuellement" que l'utilisateur est connecté
         setAccount({
           username: decodeJwt(accessToken)?.preferred_username,
           token: accessToken
@@ -117,38 +118,16 @@ function App() {
     });
   }
 
-  async function initGraphClient(accessToken) {
-    return new Promise(resolve => {
-      const graph = Client.init({
-        authProvider: (done) => done(null, accessToken)
-      });
-
-      setClient(graph);
-      setGraphClient(graph);
-
-      resolve(); // ⬅️ permet d’enchaîner .then()
+  function initGraphClient(accessToken) {
+    const graph = Client.init({
+      authProvider: (done) => done(null, accessToken)
     });
+
+    setClient(graph);
+    setGraphClient(graph);
   }
 
-  /** ✅ Tester la connexion Graph */
-  async function testGraphConnection() {
-    if (!client) return;
-
-    try {
-      setLoading(true);
-      // Tester avec une requête simple
-      const user = await client.api('/me').get();
-      console.log("✅ Test Graph réussi:", user.displayName);
-      setError(null);
-      return true;
-    } catch (err) {
-      console.error("❌ Test Graph échoué:", err);
-      setError("Erreur Graph: " + (err.message || err));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
+ 
 
   async function listPdfs() {
     setLoading(true);
@@ -201,9 +180,6 @@ function App() {
     }
   }
 
-  function closePreview() {
-    setPreviewUrl(null);
-  }
 
   return (
     <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
@@ -300,6 +276,7 @@ function App() {
       )}
     </div>
   );
+
 
 }
 
