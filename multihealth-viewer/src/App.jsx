@@ -28,31 +28,36 @@ function App() {
   useEffect(() => {
     async function initializeTeams() {
       try {
+
+
         console.log("🔄 Initialisation Teams…");
         await microsoftTeams.app.initialize();
         const context = await microsoftTeams.app.getContext();
-        console.log("✅ Teams OK");
+        const isDesktop = context.app.host.clientType === "desktop";
+        console.log("💻 Mode :", isDesktop ? "Desktop" : "Web");
 
-        // Mode Desktop = SSO automatique
-        if (context.app.host.clientType === "desktop") {
-          console.log("💻 Mode Desktop → SSO");
-          const accessToken = await microsoftTeams.authentication.getAuthToken({
-            resources: ["https://graph.microsoft.com"],
+        if (isDesktop) {
+          console.log("🔐 Desktop → Tentative SSO sans popup");
+
+          const authToken = await microsoftTeams.authentication.getAuthToken({
+            resources: ["https://graph.microsoft.com"]
           });
 
-          console.log("✅ Token SSO Desktop reçu");
-          initGraphClient(accessToken);
-          setAccount({ username: decodeJwt(accessToken)?.preferred_username });
+          console.log("✅ SSO Desktop OK");
+          initGraphClient(authToken);
+          setAccount({ username: decodeJwt(authToken)?.preferred_username });
           setAuthStatus("authenticated");
-          return;
         }
 
-        // Mode Web = popup d'auth
-        console.log("🌍 Mode Web → Popup Auth");
-        openTeamsAuthDialog();
+
+        setTimeout(() => openTeamsAuthDialog(), 300);
+        setAuthStatus("waiting_for_web_popup");
+
+
       } catch (err) {
-        console.error("❌ Erreur init Teams:", err);
+        console.error("❌ Erreur SSO Teams:", err);
         openTeamsAuthDialog();
+
       }
     }
 
