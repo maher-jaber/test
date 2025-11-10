@@ -96,7 +96,12 @@ function App() {
         console.log("✅ Token reçu depuis auth.html:", accessToken);
 
         initGraphClient(accessToken)
-          .then(() => listPdfs());  // ⬅️ Auto listing après auth
+          .then(() => {
+            setLoading(true);
+            setTimeout(function () {
+              listPdfs();
+            }, 3000)
+          });  // ⬅️ Auto listing après auth
 
         setAccount({
           username: decodeJwt(accessToken)?.preferred_username,
@@ -117,10 +122,10 @@ function App() {
       const graph = Client.init({
         authProvider: (done) => done(null, accessToken)
       });
-  
+
       setClient(graph);
       setGraphClient(graph);
-  
+
       resolve(); // ⬅️ permet d’enchaîner .then()
     });
   }
@@ -148,36 +153,36 @@ function App() {
   async function listPdfs() {
     setLoading(true);
     setError(null);
-  
+
     try {
       const hostname = new URL(siteUrl).hostname;
       const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
       const sitePath = pathParts.slice(1).join("/");
-  
+
       const site = await client.api(`/sites/${hostname}:/sites/${sitePath}`).get();
       const drives = await client.api(`/sites/${site.id}/drives`).get();
-  
+
       let driveId = drives.value.find(d => d.name.toLowerCase().includes("document"))?.id;
       if (!driveId) throw new Error("❌ Aucune bibliothèque trouvée");
-  
+
       const response = await client
         .api(`/drives/${driveId}/root:${folderPath}:/children`)
         .get();
-  
+
       const pdf = response.value.find(f => f.file && f.name.endsWith(".pdf"));
-  
+
       if (!pdf) throw new Error("❌ Aucun PDF trouvé dans ce dossier");
-  
+
       setFiles([pdf]);     // stockage si tu veux afficher le nom
       await previewFile(pdf); // ⬅️ affichage immédiat
-  
+
     } catch (e) {
       setError(e.message);
     }
-  
+
     setLoading(false);
   }
-  
+
 
 
   /** ✅ Preview PDF avec URL directe SharePoint */
@@ -204,7 +209,7 @@ function App() {
     <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
       <h2 style={{ marginBottom: 20, color: "#323130" }}>📄 MultiHealth — PDF Viewer</h2>
 
-    
+
 
 
       {/* Connexion */}
@@ -229,9 +234,13 @@ function App() {
           🔐 Se connecter à Microsoft Graph
         </button>
       )}
+      {loading && (
+        <div style={{ marginBottom: 10 }}>
 
+          ⏳ Chargement...
 
-
+        </div>
+      )}
       {/* Erreur */}
       {error && (
         <div style={{
@@ -261,7 +270,7 @@ function App() {
         </div>
       )}
 
-    
+
 
       {/* Aperçu PDF */}
       {previewUrl && (
@@ -273,7 +282,7 @@ function App() {
             marginBottom: 10
           }}>
             <h3 style={{ color: "#323130" }}>👁️ Aperçu PDF</h3>
-            
+
           </div>
           <iframe
             src={previewUrl}
