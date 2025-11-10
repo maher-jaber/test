@@ -87,7 +87,7 @@ function App() {
     setLoading(true);
     setTimeout(function () {
       listPdfs();
-    }, 3000);
+    }, 6000);
 
   }, []);
 

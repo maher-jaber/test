@@ -1,0 +1,95 @@
+return (
+    <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
+      <h2 style={{ marginBottom: 20, color: "#323130" }}>📄 MultiHealth — PDF Viewer</h2>
+
+
+
+
+      {/* Connexion */}
+      {!account && (
+        <button
+          onClick={openTeamsAuthDialog}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: "#0078d4",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: 6,
+            cursor: "pointer",
+            marginBottom: 20,
+            fontWeight: 500,
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            transition: "background 0.2s"
+          }}
+          onMouseOver={e => e.currentTarget.style.backgroundColor = "#005a9e"}
+          onMouseOut={e => e.currentTarget.style.backgroundColor = "#0078d4"}
+        >
+          🔐 Se connecter à Microsoft Graph
+        </button>
+      )}
+      {loading && (
+        <div style={{ marginBottom: 10 }}>
+
+          ⏳ Chargement...
+
+        </div>
+      )}
+      {/* Erreur */}
+      {error && (
+        <div style={{
+          color: "#a80000",
+          backgroundColor: "#fde7e9",
+          padding: 12,
+          borderRadius: 6,
+          marginTop: 10,
+          border: "1px solid #f5c2c7",
+          fontWeight: 500
+        }}>
+          ❌ {error}
+        </div>
+      )}
+
+      {/* Initialisation */}
+      {!graphClient && !error && (
+        <div style={{
+          color: "#605e5c",
+          padding: 10,
+          marginTop: 10,
+          fontStyle: "italic"
+        }}>
+          🔄 {authStatus === "teams_initialized" ?
+            "Authentification avec ressource personnalisée..." :
+            "Initialisation de Teams..."}
+        </div>
+      )}
+
+
+
+      {/* Aperçu PDF */}
+      {previewUrl && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 10
+          }}>
+            <h3 style={{ color: "#323130" }}>👁️ Aperçu PDF</h3>
+
+          </div>
+          <iframe
+            src={previewUrl}
+            title="preview"
+            style={{
+              width: "100%",
+              height: "80vh",
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              backgroundColor: "#ffffff",
+              boxShadow: "0 1px 5px rgba(0,0,0,0.1)"
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
