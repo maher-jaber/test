@@ -197,7 +197,10 @@ function App() {
     }
 
     setLoading(false);
-    previewFile(pdfs[0]);
+    setTimeout(() => {
+      previewFile(pdfs[0]);
+    }, 2000);
+ 
   }
 
 
@@ -224,25 +227,10 @@ function App() {
   return (
     <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
       <h2 style={{ marginBottom: 20, color: "#323130" }}>📄 MultiHealth — PDF Viewer</h2>
-  
-      {/* Info Site / Dossier */}
-      <div style={{
-        padding: 15,
-        borderRadius: 8,
-        backgroundColor: "#ffffff",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-        marginBottom: 20,
-        color: "#323130"
-      }}>
-        <p style={{ margin: 0, lineHeight: 1.6 }}>
-          <strong>Site:</strong> {siteUrl}<br />
-          <strong>Dossier:</strong> {folderPath || "/ (racine)"}<br />
-          <strong>Statut:</strong> {authStatus === "authenticated" ? "✅ Authentifié" :
-            authStatus === "teams_initialized" ? "🔄 Authentification..." :
-              authStatus === "error" ? "❌ Erreur" : "🔄 Initialisation..."}
-        </p>
-      </div>
-  
+
+
+
+
       {/* Connexion */}
       {!account && (
         <button
@@ -265,31 +253,13 @@ function App() {
           🔐 Se connecter à Microsoft Graph
         </button>
       )}
-  
-      {/* Lister PDF */}
-      <div style={{ marginBottom: 10 }}>
-        <button
-          onClick={listPdfs}
-          disabled={!graphClient || loading}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: graphClient ? "#0078d4" : "#ccc",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: 6,
-            cursor: graphClient ? "pointer" : "not-allowed",
-            fontWeight: 500,
-            boxShadow: graphClient ? "0 2px 4px rgba(0,0,0,0.1)" : "none",
-            transition: "background 0.2s",
-            marginRight: 10
-          }}
-          onMouseOver={e => graphClient && (e.currentTarget.style.backgroundColor = "#005a9e")}
-          onMouseOut={e => graphClient && (e.currentTarget.style.backgroundColor = "#0078d4")}
-        >
-          {loading ? "⏳ Chargement..." : "📂 Lister les PDF"}
-        </button>
-      </div>
-  
+      {loading && (
+        <div style={{ marginBottom: 10 }}>
+
+          ⏳ Chargement...
+
+        </div>
+      )}
       {/* Erreur */}
       {error && (
         <div style={{
@@ -304,7 +274,7 @@ function App() {
           ❌ {error}
         </div>
       )}
-  
+
       {/* Initialisation */}
       {!graphClient && !error && (
         <div style={{
@@ -318,53 +288,9 @@ function App() {
             "Initialisation de Teams..."}
         </div>
       )}
-  
-      {/* Liste PDF */}
-      {files.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h3 style={{ color: "#323130", marginBottom: 10 }}>📋 Fichiers PDF ({files.length})</h3>
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {files.map(f => (
-              <li key={f.id} style={{
-                padding: "12px 15px",
-                border: "1px solid #ddd",
-                marginBottom: 8,
-                borderRadius: 8,
-                backgroundColor: "#ffffff",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                transition: "transform 0.1s",
-              }}
-                onMouseOver={e => e.currentTarget.style.transform = "scale(1.02)"}
-                onMouseOut={e => e.currentTarget.style.transform = "scale(1)"}
-              >
-                <span>📄 {f.name}</span>
-                <button
-                  onClick={() => previewFile(f)}
-                  disabled={loading}
-                  style={{
-                    padding: "6px 14px",
-                    backgroundColor: "#28a745",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: 5,
-                    cursor: "pointer",
-                    fontWeight: 500,
-                    transition: "background 0.2s"
-                  }}
-                  onMouseOver={e => e.currentTarget.style.backgroundColor = "#218838"}
-                  onMouseOut={e => e.currentTarget.style.backgroundColor = "#28a745"}
-                >
-                  {loading ? "⏳" : "Aperçu"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-  
+
+
+
       {/* Aperçu PDF */}
       {previewUrl && (
         <div style={{ marginTop: 20 }}>
@@ -375,23 +301,7 @@ function App() {
             marginBottom: 10
           }}>
             <h3 style={{ color: "#323130" }}>👁️ Aperçu PDF</h3>
-            <button
-              onClick={closePreview}
-              style={{
-                padding: "6px 14px",
-                backgroundColor: "#dc3545",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: 5,
-                cursor: "pointer",
-                fontWeight: 500,
-                transition: "background 0.2s"
-              }}
-              onMouseOver={e => e.currentTarget.style.backgroundColor = "#b02a37"}
-              onMouseOut={e => e.currentTarget.style.backgroundColor = "#dc3545"}
-            >
-              Fermer
-            </button>
+
           </div>
           <iframe
             src={previewUrl}
@@ -409,6 +319,7 @@ function App() {
       )}
     </div>
   );
+
   
 }
 
