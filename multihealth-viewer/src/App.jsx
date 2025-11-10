@@ -1,153 +1,105 @@
-import React, { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { Client } from "@microsoft/microsoft-graph-client";
-import 'regenerator-runtime/runtime';
+import "regenerator-runtime/runtime";
 import * as microsoftTeams from "@microsoft/teams-js";
-import * as msal from "@azure/msal-browser";
-
-const AZURE_APP_ID = "1135fab5-62e8-4cb1-b472-880c477a8812";
-
 
 function decodeJwt(token) {
   try {
-    return JSON.parse(atob(token.split('.')[1]));
+    return JSON.parse(atob(token.split(".")[1]));
   } catch (e) {
     return null;
   }
 }
 
-const msalConfig = {
-  auth: {
-    clientId: process.env.REACT_APP_CLIENT_ID || "",
-    authority: `https://login.microsoftonline.com/${process.env.REACT_APP_TENANT_ID || "common"}`,
-    redirectUri: window.location.origin + '/'
-  },
-  cache: {
-    cacheLocation: "sessionStorage",
-    storeAuthStateInCookie: false
-  }
-};
-
-const loginRequest = {
-  scopes: ["openid", "profile", "Files.Read.All", "Sites.Read.All", "offline_access", "User.Read"]
-};
 function App() {
-  const [msalInstance] = useState(new msal.PublicClientApplication(msalConfig));
-  const [graphClient, setGraphClient] = useState(null);
-  const [files, setFiles] = useState([]);
+  const [client, setClient] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState("initializing");
   const [account, setAccount] = useState(null);
-  const [client, setClient] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const siteUrl = urlParams.get("siteUrl") || "";
-  const folderPath = urlParams.get("folderPath") || "";
+  const params = new URLSearchParams(window.location.search);
+  const siteUrl = params.get("siteUrl") || "";
+  const folderPath = params.get("folderPath") || "";
 
-  /** ✅ Initialisation SSO Teams */
+  /** ✅ Initialise Teams, récupère SSO Desktop sinon popup */
   useEffect(() => {
     async function initializeTeams() {
       try {
-
-
         console.log("🔄 Initialisation Teams…");
         await microsoftTeams.app.initialize();
         const context = await microsoftTeams.app.getContext();
-        const isDesktop = context.app.host.clientType === "desktop";
-        console.log("💻 Mode :", isDesktop ? "Desktop" : "Web");
+        console.log("✅ Teams OK");
 
-        if (isDesktop) {
-          console.log("🔐 Desktop → Tentative SSO sans popup");
-
-          const authToken = await microsoftTeams.authentication.getAuthToken({
-            resources: ["https://graph.microsoft.com"]
+        // Mode Desktop = SSO automatique
+        if (context.app.host.clientType === "desktop") {
+          console.log("💻 Mode Desktop → SSO");
+          const accessToken = await microsoftTeams.authentication.getAuthToken({
+            resources: ["https://graph.microsoft.com"],
           });
 
-          console.log("✅ SSO Desktop OK");
-          initGraphClient(authToken);
-          setAccount({ username: decodeJwt(authToken)?.preferred_username });
+          console.log("✅ Token SSO Desktop reçu");
+          initGraphClient(accessToken);
+          setAccount({ username: decodeJwt(accessToken)?.preferred_username });
           setAuthStatus("authenticated");
+          return;
         }
 
-
-        setTimeout(() => openTeamsAuthDialog(), 300);
-        setAuthStatus("waiting_for_web_popup");
-
-
-      } catch (err) {
-        console.error("❌ Erreur SSO Teams:", err);
+        // Mode Web = popup d'auth
+        console.log("🌍 Mode Web → Popup Auth");
         openTeamsAuthDialog();
-
+      } catch (err) {
+        console.error("❌ Erreur init Teams:", err);
+        openTeamsAuthDialog();
       }
     }
 
     initializeTeams();
-    setLoading(true);
-    setTimeout(function () {
-      listPdfs();
-    }, 6000);
   }, []);
 
-
+  /** ✅ Auth Microsoft (web) via popup */
   function openTeamsAuthDialog() {
     microsoftTeams.authentication.authenticate({
       url: window.location.origin + "/auth.html",
       width: 600,
       height: 600,
       successCallback: (accessToken) => {
-        console.log("✅ Token reçu depuis auth.html:", accessToken);
-
-        // ✅ Pas besoin de MSAL ici ! On utilise directement le token.
+        console.log("🔑 Token reçu via popup");
         initGraphClient(accessToken);
 
-        // ✅ Sauvegarder "visuellement" que l'utilisateur est connecté
         setAccount({
           username: decodeJwt(accessToken)?.preferred_username,
-          token: accessToken
+          token: accessToken,
         });
 
         setAuthStatus("authenticated");
       },
       failureCallback: (reason) => {
-        console.error("❌ Auth dialog erreur:", reason);
+        console.error("❌ Auth échouée:", reason);
         setError(reason);
-      }
+      },
     });
   }
 
+  /** ✅ Instancie Microsoft Graph */
   function initGraphClient(accessToken) {
     const graph = Client.init({
-      authProvider: (done) => done(null, accessToken)
+      authProvider: (done) => done(null, accessToken),
     });
 
     setClient(graph);
-    setGraphClient(graph);
   }
 
-  /** ✅ Tester la connexion Graph */
-  async function testGraphConnection() {
-    if (!client) return;
+  /** ✅ Lance automatiquement listPdfs quand client prêt */
+  useEffect(() => {
+    if (client) listPdfs();
+  }, [client]);
 
-    try {
-      setLoading(true);
-      // Tester avec une requête simple
-      const user = await client.api('/me').get();
-      console.log("✅ Test Graph réussi:", user.displayName);
-      setError(null);
-      return true;
-    } catch (err) {
-      console.error("❌ Test Graph échoué:", err);
-      setError("Erreur Graph: " + (err.message || err));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  /** ✅ Récupère et ouvre automatiquement le premier PDF */
   async function listPdfs() {
-    // if (!graphClient) return;
+    if (!client) return;
 
     setLoading(true);
     setError(null);
@@ -157,170 +109,119 @@ function App() {
       const pathParts = new URL(siteUrl).pathname.split("/").filter(Boolean);
       const sitePath = pathParts.slice(1).join("/");
 
-      console.log("🔍 SITE TARGET:", hostname, sitePath);
+      console.log("🔍 SITE:", hostname, sitePath);
 
-      // 1️⃣ Récupérer le site
       const site = await client.api(`/sites/${hostname}:/sites/${sitePath}`).get();
-      console.log("✅ Site ID:", site.id);
 
-      // 2️⃣ Récupérer TOUTES les drives (bibliothèques documentaires)
       const drives = await client.api(`/sites/${site.id}/drives`).get();
-      console.log("📂 Drives trouvés:", drives.value.map(d => d.name));
 
-      // 3️⃣ Trouver la drive qui contient ton dossier "Administratif"
-      let driveId = null;
-      for (let d of drives.value) {
-        if (d.name.toLowerCase().includes("document")) {
-          driveId = d.id;
-          console.log("✅ Drive détectée:", d.name, d.id);
-          break;
-        }
-      }
+      const drive = drives.value.find((d) =>
+        d.name.toLowerCase().includes("document")
+      );
 
-      if (!driveId) throw new Error("❌ Aucune bibliothèque de documents trouvée.");
-
-      // 4️⃣ Tester l'accès au dossier demandé
-      console.log(`🔎 Test: /drives/${driveId}/root:${folderPath}:/children`);
+      if (!drive) throw new Error("❌ aucune bibliothèque Documents");
 
       const response = await client
-        .api(`/drives/${driveId}/root:${folderPath}:/children`)
+        .api(`/drives/${drive.id}/root:${folderPath}:/children`)
         .get();
 
-      console.log("✅ Résultat Graph:", response);
+      const pdf = response.value.find(
+        (f) => f.file && f.name.toLowerCase().endsWith(".pdf")
+      );
 
-      const pdfs = response.value.filter(f => f.file && f.name.endsWith(".pdf"));
-      setFiles(pdfs);
+      if (!pdf) throw new Error("❌ Aucun PDF trouvé dans ce dossier");
 
+      console.log("📄 PDF détecté:", pdf.name);
+      previewFile(pdf);
     } catch (e) {
-      console.error("❌ ERREUR:", e);
+      console.error(e);
       setError(e.message);
+      setLoading(false);
+    }
+  }
+
+  /** ✅ Récupère le lien d’aperçu */
+  async function previewFile(item) {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const res = await client
+        .api(`/drives/${item.parentReference.driveId}/items/${item.id}/preview`)
+        .post({});
+
+      if (res?.getUrl) {
+        setPreviewUrl(res.getUrl);
+      } else {
+        setError("Impossible de charger le PDF");
+      }
+    } catch (err) {
+      setError(err.message);
     }
 
     setLoading(false);
-    setTimeout(() => {
-      previewFile(pdfs[0]);
-    }, 2000);
- 
-  }
-
-
-  /** ✅ Preview PDF avec URL directe SharePoint */
-  async function previewFile(item) {
-    if (!client) { setError('Graph client not initialized'); return; }
-    setError(null);
-    try {
-      const res = await client.api(`/drives/${item.parentReference.driveId}/items/${item.id}/preview`).post({});
-      if (res && res.getUrl) {
-        setPreviewUrl(res.getUrl);
-      } else {
-        setError('Impossible d\'obtenir l\'URL de preview');
-      }
-    } catch (err) {
-      setError(err.message || String(err));
-    }
-  }
-
-  function closePreview() {
-    setPreviewUrl(null);
   }
 
   return (
-    <div style={{ padding: 20, fontFamily: "'Segoe UI', sans-serif", backgroundColor: "#f3f2f1", minHeight: "100vh" }}>
-      <h2 style={{ marginBottom: 20, color: "#323130" }}>📄 MultiHealth — PDF Viewer</h2>
+    <div
+      style={{
+        padding: 20,
+        fontFamily: "'Segoe UI', sans-serif",
+        background: "#f3f2f1",
+        minHeight: "100vh",
+      }}
+    >
+      <h2 style={{ marginBottom: 15 }}>📄 MultiHealth — PDF Viewer</h2>
 
-
-
-
-      {/* Connexion */}
       {!account && (
         <button
           onClick={openTeamsAuthDialog}
           style={{
-            padding: "10px 20px",
-            backgroundColor: "#0078d4",
-            color: "#ffffff",
-            border: "none",
+            background: "#0078d4",
+            padding: "10px 18px",
             borderRadius: 6,
+            border: "none",
+            color: "#fff",
             cursor: "pointer",
-            marginBottom: 20,
             fontWeight: 500,
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            transition: "background 0.2s"
           }}
-          onMouseOver={e => e.currentTarget.style.backgroundColor = "#005a9e"}
-          onMouseOut={e => e.currentTarget.style.backgroundColor = "#0078d4"}
         >
-          🔐 Se connecter à Microsoft Graph
+          🔐 Se connecter
         </button>
       )}
-      {loading && (
-        <div style={{ marginBottom: 10 }}>
 
-          ⏳ Chargement...
+      {loading && <div style={{ marginTop: 10 }}>⏳ Chargement PDF…</div>}
 
-        </div>
-      )}
-      {/* Erreur */}
       {error && (
-        <div style={{
-          color: "#a80000",
-          backgroundColor: "#fde7e9",
-          padding: 12,
-          borderRadius: 6,
-          marginTop: 10,
-          border: "1px solid #f5c2c7",
-          fontWeight: 500
-        }}>
+        <div
+          style={{
+            marginTop: 10,
+            padding: 12,
+            background: "#fde7e9",
+            color: "#a80000",
+            borderRadius: 6,
+          }}
+        >
           ❌ {error}
         </div>
       )}
 
-      {/* Initialisation */}
-      {!graphClient && !error && (
-        <div style={{
-          color: "#605e5c",
-          padding: 10,
-          marginTop: 10,
-          fontStyle: "italic"
-        }}>
-          🔄 {authStatus === "teams_initialized" ?
-            "Authentification avec ressource personnalisée..." :
-            "Initialisation de Teams..."}
-        </div>
-      )}
-
-
-
-      {/* Aperçu PDF */}
       {previewUrl && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 10
-          }}>
-            <h3 style={{ color: "#323130" }}>👁️ Aperçu PDF</h3>
-
-          </div>
-          <iframe
-            src={previewUrl}
-            title="preview"
-            style={{
-              width: "100%",
-              height: "80vh",
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 1px 5px rgba(0,0,0,0.1)"
-            }}
-          />
-        </div>
+        <iframe
+          src={previewUrl}
+          title="PDF Viewer"
+          style={{
+            width: "100%",
+            height: "85vh",
+            borderRadius: 8,
+            border: "1px solid #ccc",
+            marginTop: 14,
+            background: "#fff",
+          }}
+        />
       )}
     </div>
   );
-
-  
 }
 
 createRoot(document.getElementById("root")).render(<App />);
