@@ -197,19 +197,7 @@ function App() {
 
       {loading && <div style={{ marginTop: 10 }}>⏳ Chargement PDF…</div>}
 
-      {error && (
-        <div
-          style={{
-            marginTop: 10,
-            padding: 12,
-            background: "#fde7e9",
-            color: "#a80000",
-            borderRadius: 6,
-          }}
-        >
-          ❌ {error}
-        </div>
-      )}
+    
 
       {previewUrl && (
         <iframe
